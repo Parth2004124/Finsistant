@@ -10,10 +10,12 @@
             background-color: #121212;
             color: #ffffff;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 40px 20px;
+            box-sizing: border-box;
             text-align: center;
         }
         .container {
@@ -44,14 +46,33 @@
         .btn:hover {
             background-color: #45a049;
         }
-    </style>
+        .gallery {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 50px;
+            max-width: 1200px;
+        }
+        .gallery img {
+            width: 300px;
+            border-radius: 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.8);
+            border: 1px solid #333;
+        }
 </head>
 <body>
     <div class="container">
-        <h1>Finsistant</h1>
-        <p>Your automated trading assistant, powered by Kite Connect API.</p>
+        <h1>Finsistant V2</h1>
+        <p>Your automated trading assistant, powered by Kite Connect API and Gemini AI.</p>
         <p>This is a placeholder page for the Android application. Download links and documentation will be available here.</p>
         <a href="#" class="btn">Coming Soon</a>
+    </div>
+
+    <div class="gallery">
+        <img src="assets/images/dashboard.png" alt="Dashboard Screen">
+        <img src="assets/images/chatbot.png" alt="Chatbot Screen">
+        <img src="assets/images/settings.png" alt="Settings Screen">
     </div>
 </body>
 </html>
