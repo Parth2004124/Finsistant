@@ -1,7 +1,7 @@
-from flask import Blueprint, jsonify, request
+from flask import Flask, jsonify, request
 from datetime import datetime
 
-techsight_bp = Blueprint('techsight_bp', __name__, url_prefix='/api/techsight')
+app = Flask(__name__)
 
 MOCK_PENDING_TRADES = [
     {
@@ -34,12 +34,8 @@ MOCK_PENDING_TRADES = [
     }
 ]
 
-@techsight_bp.route("/status", methods=["GET"])
+@app.route("/api/techsight/status", methods=["GET"])
 def get_engine_status():
-    """
-    Returns the real-time health and execution status of the TechSight engine.
-    Used by the Android Dashboard to show the "Live Progress" ring.
-    """
     return jsonify({
         "is_running": False,
         "current_phase": "IDLE (Awaiting EOD)",
@@ -48,19 +44,17 @@ def get_engine_status():
         "pending_approvals_count": len(MOCK_PENDING_TRADES)
     })
 
-@techsight_bp.route("/approvals", methods=["GET"])
+@app.route("/api/techsight/approvals", methods=["GET"])
 def get_pending_approvals():
-    """
-    Returns the list of trades waiting for human-in-the-loop authorization.
-    """
     return jsonify(MOCK_PENDING_TRADES)
 
-@techsight_bp.route("/approvals/authorize", methods=["POST"])
+@app.route("/api/techsight/approvals/authorize", methods=["POST"])
 def authorize_batch():
-    """
-    Called by the Android App when the user hits 'Approve Batch'.
-    Transitions trades from PENDING_APPROVAL to queued Kite limits.
-    """
     req = request.json or {}
     trade_ids = req.get("trade_ids", [])
     return jsonify({"status": "success", "message": f"Authorized {len(trade_ids)} trades for Kite execution."})
+
+if __name__ == "__main__":
+    from waitress import serve
+    print("Starting Standalone TechSight Dashboard API on port 8001...")
+    serve(app, host="0.0.0.0", port=8001)

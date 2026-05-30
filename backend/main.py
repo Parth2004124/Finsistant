@@ -7,9 +7,6 @@ static_dir = os.path.join(BASE_DIR, 'static')
 
 app = Flask(__name__, static_url_path='/static', static_folder=static_dir)
 
-from dashboard_api import techsight_bp
-app.register_blueprint(techsight_bp)
-
 API_KEY = "dn5f72ctu7ey0jtr"
 ACCESS_TOKEN_FALLBACK = "FZVCRXLIn0o5tYhMQjYHRMNwb51PQGfP"
 SECRET_KEY = "my_super_secret_trading_key"
