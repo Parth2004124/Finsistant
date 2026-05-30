@@ -5,50 +5,55 @@ from db_handler import save_ohlcv, is_cache_stale, load_ohlcv
 import time
 import sys
 
-def fetch_yfinance_data(symbol: str, timeframe: str, force_refresh=False):
+from investpy_fetcher import fetch_investpy_data
+from alphavantage_fetcher import fetch_alphavantage_data
+
+def fetch_ohlcv_data(symbol: str, timeframe: str, force_refresh=False):
     """
-    Fetches data from yfinance.
-    timeframe: '1d' (Daily, 200 bars), '1wk' (Weekly, 104 bars), '60m' (60-min, 60 bars)
+    Fetches data with a 3-tier fallback chain: yfinance -> investpy -> Alpha Vantage
     """
     if not force_refresh and not is_cache_stale(symbol, timeframe):
-        #print(f"[{symbol} - {timeframe}] Cache Hit. Data is fresh.")
         return load_ohlcv(symbol, timeframe)
     
-    #print(f"[{symbol} - {timeframe}] Cache Miss / Stale. Fetching from yfinance...")
-    
     period_map = {
-        '1d': '1y',       # ~252 bars, gives us the 200 needed
-        '1wk': '3y',      # ~156 bars, gives us the 104 needed
-        '60m': '1mo'      # ~150 bars, gives us the 60 needed
+        '1d': '1y',
+        '1wk': '3y',
+        '60m': '1mo'
     }
     
+    df = None
+    
+    # Tier 1: yfinance
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(period=period_map[timeframe], interval=timeframe)
-        
-        if df.empty:
-            print(f"[{symbol} - {timeframe}] Warning: yfinance returned empty dataframe.")
-            return None
-            
-        # Clean the dataframe (drop dividends/splits if any)
-        df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-        df.dropna(inplace=True)
-        
-        # Enforce exact bar counts as per Blueprint Step 1
-        if timeframe == '1d':
-            df = df.tail(200)
-        elif timeframe == '1wk':
-            df = df.tail(104)
-        elif timeframe == '60m':
-            df = df.tail(60)
-            
-        # Save to DB
-        save_ohlcv(symbol, timeframe, df)
-        return df
-        
+        if not df.empty:
+            df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+            df.dropna(inplace=True)
+            if timeframe == '1d': df = df.tail(200)
+            elif timeframe == '1wk': df = df.tail(104)
+            elif timeframe == '60m': df = df.tail(60)
+        else:
+            df = None
     except Exception as e:
-        print(f"[{symbol} - {timeframe}] Exception during yfinance fetch: {e}")
+        df = None
+        
+    # Tier 2: investpy
+    if df is None:
+        df = fetch_investpy_data(symbol, timeframe)
+        
+    # Tier 3: Alpha Vantage
+    if df is None:
+        df = fetch_alphavantage_data(symbol, timeframe)
+        
+    if df is None or df.empty:
+        print(f"[{symbol} - {timeframe}] ALL SOURCES FAILED. Flagging as data-unavailable.")
+        # We save an empty dataframe to represent the unavailable flag locally
+        save_ohlcv(symbol, timeframe, pd.DataFrame())
         return None
+        
+    save_ohlcv(symbol, timeframe, df)
+    return df
 
 def fetch_all_nse500():
     print("Fetching NSE 500 Symbol List...")
@@ -69,7 +74,7 @@ def fetch_all_nse500():
         print(f"Processing {idx+1}/{total}: {sym}")
         success = True
         for tf in timeframes:
-            df = fetch_yfinance_data(sym, tf, force_refresh=True)
+            df = fetch_ohlcv_data(sym, tf, force_refresh=True)
             if df is None or df.empty:
                 success = False
                 break
