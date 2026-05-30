@@ -1,7 +1,13 @@
-from flask import Flask, jsonify, request
+import sys
+
+# Redirect stdout and stderr to prevent pythonw.exe crashes on Windows
+sys.stdout = open('dashboard.log', 'w')
+sys.stderr = open('dashboard_err.log', 'w')
+
+from flask import Blueprint, jsonify, request
 from datetime import datetime
 
-app = Flask(__name__)
+techsight_bp = Blueprint('techsight_bp', __name__, url_prefix='/api/techsight')
 
 MOCK_PENDING_TRADES = [
     {
@@ -34,7 +40,7 @@ MOCK_PENDING_TRADES = [
     }
 ]
 
-@app.route("/api/techsight/status", methods=["GET"])
+@techsight_bp.route("/status", methods=["GET"])
 def get_engine_status():
     return jsonify({
         "is_running": False,
@@ -44,17 +50,12 @@ def get_engine_status():
         "pending_approvals_count": len(MOCK_PENDING_TRADES)
     })
 
-@app.route("/api/techsight/approvals", methods=["GET"])
+@techsight_bp.route("/approvals", methods=["GET"])
 def get_pending_approvals():
     return jsonify(MOCK_PENDING_TRADES)
 
-@app.route("/api/techsight/approvals/authorize", methods=["POST"])
+@techsight_bp.route("/approvals/authorize", methods=["POST"])
 def authorize_batch():
     req = request.json or {}
     trade_ids = req.get("trade_ids", [])
     return jsonify({"status": "success", "message": f"Authorized {len(trade_ids)} trades for Kite execution."})
-
-if __name__ == "__main__":
-    from waitress import serve
-    print("Starting Standalone TechSight Dashboard API on port 8001...")
-    serve(app, host="0.0.0.0", port=8001)
