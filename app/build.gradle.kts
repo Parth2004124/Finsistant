@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.finsistant"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.4"
     }
 
     buildTypes {
@@ -61,6 +61,7 @@ dependencies {
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.compose.material3)
+  implementation("androidx.compose.material:material-icons-extended")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
@@ -81,4 +82,19 @@ dependencies {
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+  // Networking
+  implementation(libs.retrofit)
+  implementation(libs.retrofit.converter.moshi)
+  implementation(libs.okhttp)
+  implementation(libs.okhttp.logging.interceptor)
+  implementation(libs.moshi)
+  implementation(libs.kotlin.otp)
+  implementation("commons-codec:commons-codec:1.16.1")
+  implementation("androidx.security:security-crypto:1.1.0-alpha06")
+  implementation(libs.androidx.navigation.compose)
+  implementation(libs.vico.compose)
+  implementation(libs.vico.compose.m3)
+  implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+  // To use Moshi codegen: kapt("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
 }
