@@ -232,21 +232,32 @@ export default function App() {
   };
 
   const handleExecuteAll = () => {
-    // We execute all BUY queue while checking if balance is sufficient
-    // Actually, backend /api/approve can take an array, but we can filter it based on required funds locally first or let backend handle it
     const ids = queue.map(t => t.id);
     if(ids.length === 0) return;
     
-    // We can just pass it to the backend and the backend will verify funds.
-    fetchWithAuth(`${API_BASE}/approve`, { method: "POST", body: JSON.stringify({ trade_ids: ids, enforce_margin: true }) }).then(() => {
-      fetchState();
-    });
+    fetchWithAuth(`${API_BASE}/approve`, { method: "POST", body: JSON.stringify({ trade_ids: ids, enforce_margin: true }) })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'success' && data.executed_orders.length !== ids.length) {
+          alert(`Executed ${data.executed_orders.length} out of ${ids.length} trades. The rest were blocked due to insufficient margin or circuit limits.`);
+        } else if (data.status === 'error') {
+          alert("Error: " + data.detail);
+        }
+        fetchState();
+      });
   };
 
   const executeTrade = (tradeId) => {
-    fetchWithAuth(`${API_BASE}/approve`, { method: "POST", body: JSON.stringify({ trade_ids: [tradeId], enforce_margin: true }) }).then(() => {
-      fetchState();
-    });
+    fetchWithAuth(`${API_BASE}/approve`, { method: "POST", body: JSON.stringify({ trade_ids: [tradeId], enforce_margin: true }) })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'success' && data.executed_orders.length === 0) {
+          alert("TRADE REJECTED: You do not have enough margin balance in Zerodha to execute this quantity, or the stock is at a circuit limit.");
+        } else if (data.status === 'error') {
+          alert("Error: " + data.detail);
+        }
+        fetchState();
+      });
   };
 
   // Keyboard shortcut for executing selected trade
