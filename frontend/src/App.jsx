@@ -123,6 +123,7 @@ export default function App() {
           entry: parsePrice(t.entry_zone), stop: parsePrice(t.stop_loss), target: parsePrice(t.target), rr: t.rr_ratio || 0,
           rationale: typeof t.rationale === 'string' && t.rationale.startsWith('{') ? JSON.parse(t.rationale) : (t.rationale || "No rationale provided"),
           qty: Math.max(1, Math.floor(2000 / (parsePrice(t.entry_zone) - parsePrice(t.stop_loss)))),
+          ohlc: t.ohlc,
           type: 'BUY'
         }));
         
@@ -131,6 +132,7 @@ export default function App() {
           entry: parsePrice(t.entry_zone), stop: parsePrice(t.stop_loss), target: parsePrice(t.target), rr: t.rr_ratio || 0,
           rationale: typeof t.rationale === 'string' && t.rationale.startsWith('{') ? JSON.parse(t.rationale) : (t.rationale || "Risk flag breached."),
           qty: t.quantity || 0,
+          ohlc: t.ohlc,
           type: 'SELL'
         }));
 
