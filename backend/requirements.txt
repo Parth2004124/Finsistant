@@ -1,0 +1,4 @@
+Flask
+kiteconnect
+pyotp
+selenium

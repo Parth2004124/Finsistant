@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+env/
+.env
+
+# Secrets
+secrets.env
+token.txt
+backend/token.txt
+backend/secrets.env
+
+# SQLite Databases
+*.sqlite3
+*.db
+backend/*.db
+
+# Logs
+*.log
+backend/*.log
+
+# Node (Frontend)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# MacOS
+.DS_Store

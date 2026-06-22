@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finsistant Quant Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-mesh"></div>
+    
+    <nav class="navbar glass-panel">
+        <div class="logo">
+            <div class="logo-icon"></div>
+            <h1>Finsistant</h1>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="active">Portfolio</a>
+            <a href="#">Algo Studio</a>
+            <a href="#">Settings</a>
+        </div>
+        <div class="user-profile">
+            <span>Trading Active</span>
+            <div class="status-indicator live"></div>
+        </div>
+    </nav>
+
+    <main class="dashboard-container">
+        <header class="overview-section">
+            <div class="overview-card glass-panel main-metric">
+                <h3>Total Portfolio Value</h3>
+                <h2 id="total-value">₹0.00</h2>
+                <div class="pnl-pill" id="total-pnl-pill">
+                    <span id="total-pnl">+₹0.00</span>
+                </div>
+            </div>
+            
+            <div class="overview-card glass-panel secondary-metric">
+                <h3>Active Positions</h3>
+                <h2 id="active-positions-count">0</h2>
+                <p>Quant Models: Active</p>
+            </div>
+            
+            <div class="overview-card glass-panel secondary-metric">
+                <h3>Day's P&L</h3>
+                <h2 id="day-pnl">₹0.00</h2>
+                <p>Waiting for market data...</p>
+            </div>
+        </header>
+
+        <section class="holdings-section">
+            <div class="section-header">
+                <h2>Live Holdings</h2>
+                <button class="glass-button" onclick="fetchHoldings()">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-9.21l-5.44-5.44"/></svg>
+                    Refresh
+                </button>
+            </div>
+            
+            <div class="holdings-grid" id="holdings-grid">
+                <!-- Holdings cards will be dynamically injected here -->
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Loading live portfolio data...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
