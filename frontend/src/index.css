@@ -83,12 +83,32 @@ body {
 }
 
 /* MIDDLE PANEL AND RIGHT PANEL */
-.middle-panel, .right-panel {
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 320px;
+  overflow-x: hidden;
+}
+
+.middle-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow-y: auto;
   padding-right: 4px;
+  min-width: 0;
+}
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  min-width: 0;
+  max-width: 340px;
 }
 
 /* SHARED */

@@ -61,12 +61,16 @@ function ChartComponent({ data, selectedTrade }) {
     });
     seriesRef.current = candleSeries;
 
-    const handleResize = () => {
-      chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-    };
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries.length === 0 || entries[0].target !== chartContainerRef.current) { return; }
+      const newRect = entries[0].contentRect;
+      chart.applyOptions({ height: newRect.height, width: newRect.width });
+    });
+
+    resizeObserver.observe(chartContainerRef.current);
+
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, []);
@@ -138,7 +142,13 @@ export default function App() {
 
         setQueue(buys);
         setSells(sellsQ);
-        if (!selectedTrade && buys.length > 0) setSelectedTrade(buys[0]);
+        
+        if (selectedTrade) {
+          const updatedSelected = buys.find(t => t.id === selectedTrade.id) || sellsQ.find(t => t.id === selectedTrade.id);
+          if (updatedSelected) setSelectedTrade(updatedSelected);
+        } else if (buys.length > 0) {
+          setSelectedTrade(buys[0]);
+        }
       }
     });
 
