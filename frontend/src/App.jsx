@@ -308,7 +308,15 @@ export default function App() {
                 <div style={{ width: '100%', height: 6, background: '#2B2B43', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{ width: `${scanProgress}%`, height: '100%', background: '#39d353', transition: 'width 1s linear' }}></div>
                 </div>
-                <div style={{ marginTop: 15, fontSize: 12 }}>Executing technical screeners...</div>
+                <div style={{ marginTop: 15, fontSize: 12, fontStyle: 'italic', color: '#39d353' }}>
+                  {scanProgress < 15 ? "Layer 1/7: Fetching LIVE NIFTY 500 symbols..." :
+                   scanProgress < 30 ? "Layer 2/7: Executing Volume & Momentum gauntlet..." :
+                   scanProgress < 45 ? "Layer 3/7: Analyzing Price Action & Trend indicators..." :
+                   scanProgress < 60 ? "Layer 4/7: Calculating Volatility & RSI oscillators..." :
+                   scanProgress < 75 ? "Layer 5/7: Evaluating Risk:Reward & Stop-Loss matrices..." :
+                   scanProgress < 90 ? "Layer 6/7: Validating Support/Resistance structures..." :
+                   "Layer 7/7: Finalizing high-conviction asymmetric setups..."}
+                </div>
               </div>
             ) : (
               <>
