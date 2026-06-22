@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createChart } from "lightweight-charts";
 import './index.css';
 
-let API_BASE = "http://127.0.0.1:8000/api";
+let API_BASE = "http://localhost:8000/api";
 try { 
   if (localStorage.getItem("API_BASE")?.includes("ngrok")) localStorage.removeItem("API_BASE");
   API_BASE = localStorage.getItem("API_BASE") || API_BASE; 
