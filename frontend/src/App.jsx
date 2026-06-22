@@ -445,9 +445,7 @@ export default function App() {
         <section className="right-panel">
           <div className="holdings-section">
             <div className="holdings-tabs">
-              <span className="active-tab">All</span>
-              <span>Equity</span>
-              <span>Mutual funds</span>
+              <span className="active-tab">Equity Holdings</span>
             </div>
             <div className="holdings-header">
               <h3>Holdings</h3>
