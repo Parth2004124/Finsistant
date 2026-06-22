@@ -125,8 +125,32 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
   
   const chatEndRef = useRef(null);
+
+  const handleScan = () => {
+    setIsScanning(true);
+    setScanProgress(0);
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setScanProgress(progress);
+      if (progress >= 100) clearInterval(interval);
+    }, 1000);
+
+    fetchWithAuth(`${API_BASE}/scan`, {method: 'POST'}).then(() => {
+      setTimeout(() => {
+        setIsScanning(false);
+        fetchState();
+      }, 10000);
+    }).catch(() => {
+      clearInterval(interval);
+      setIsScanning(false);
+    });
+  };
 
   const fetchState = () => {
     fetch(`${API_BASE}/queue`).then(r => r.json()).then(d => {
@@ -272,20 +296,32 @@ export default function App() {
         <section className="left-panel">
           <div className="panel-header">
             <h3>Top picks today</h3>
-            <button className="white-btn" onClick={() => fetchWithAuth(`${API_BASE}/scan`, {method: 'POST'}).then(()=>fetchState())}>Scan Now</button>
+            <button className="white-btn" onClick={handleScan} disabled={isScanning} style={{ opacity: isScanning ? 0.5 : 1 }}>{isScanning ? 'Scanning...' : 'Scan Now'}</button>
           </div>
           
           <div className="picks-table">
-            {queue.map(t => (
-              <div key={t.id} className={`pick-row ${selectedTrade?.id === t.id ? 'selected' : ''}`} onClick={() => setSelectedTrade(t)}>
-                <div className="pick-symbol">{t.symbol}</div>
-                <div className="pick-val bg-blue">{fmt(t.entry, 0)}</div>
-                <div className="pick-val bg-green">{fmt(t.target, 0)}</div>
-                <div className="pick-val bg-red">{fmt(t.stop, 0)}</div>
-                <div className="pick-val bg-yellow">{(Math.random() * 10 + 2).toFixed(0)}D</div>
+            {isScanning ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#888' }}>
+                <div style={{ marginBottom: 15, fontSize: 16 }}>Scanning Market ({scanProgress}%)...</div>
+                <div style={{ width: '100%', height: 6, background: '#2B2B43', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${scanProgress}%`, height: '100%', background: '#39d353', transition: 'width 1s linear' }}></div>
+                </div>
+                <div style={{ marginTop: 15, fontSize: 12 }}>Executing technical screeners...</div>
               </div>
-            ))}
-            {queue.length === 0 && <div style={{ color: '#888', padding: '10px' }}>No pending buy setups</div>}
+            ) : (
+              <>
+                {queue.map(t => (
+                  <div key={t.id} className={`pick-row ${selectedTrade?.id === t.id ? 'selected' : ''}`} onClick={() => setSelectedTrade(t)}>
+                    <div className="pick-symbol">{t.symbol}</div>
+                    <div className="pick-val bg-blue">{fmt(t.entry, 0)}</div>
+                    <div className="pick-val bg-green">{fmt(t.target, 0)}</div>
+                    <div className="pick-val bg-red">{fmt(t.stop, 0)}</div>
+                    <div className="pick-val bg-yellow">{(Math.random() * 10 + 2).toFixed(0)}D</div>
+                  </div>
+                ))}
+                {queue.length === 0 && <div style={{ color: '#888', padding: '10px' }}>No pending buy setups</div>}
+              </>
+            )}
           </div>
 
           <div style={{ textAlign: 'right', marginTop: 10, marginBottom: 20 }}>
