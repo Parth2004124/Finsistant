@@ -75,6 +75,8 @@ function ChartComponent({ data, selectedTrade }) {
     };
   }, []);
 
+  const [chartError, setChartError] = useState(null);
+
   useEffect(() => {
     if (!chartRef.current || !seriesRef.current || !selectedTrade) return;
     
@@ -83,21 +85,35 @@ function ChartComponent({ data, selectedTrade }) {
     linesRef.current = [];
 
     if (selectedTrade.ohlc && selectedTrade.ohlc.length > 0) {
-      seriesRef.current.setData(selectedTrade.ohlc);
-      
-      const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
-      const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
-      const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
-      
-      linesRef.current = [l1, l2, l3];
-      chartRef.current.timeScale().fitContent();
+      try {
+        seriesRef.current.setData(selectedTrade.ohlc);
+        
+        const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
+        const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
+        const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
+        
+        linesRef.current = [l1, l2, l3];
+        chartRef.current.timeScale().fitContent();
+        setChartError(null);
+      } catch (err) {
+        setChartError(err.message);
+      }
     } else {
-      console.error("No OHLC data found for selected trade");
+      setChartError("OHLC array is empty or undefined for " + selectedTrade.symbol);
     }
     
   }, [selectedTrade]);
 
-  return <div ref={chartContainerRef} style={{ width: '100%', height: '100%', minHeight: 300 }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 300 }}>
+      {chartError && (
+        <div style={{ position: 'absolute', top: '40%', left: 0, width: '100%', textAlign: 'center', color: 'red', zIndex: 9999, fontSize: 24, fontWeight: 'bold' }}>
+          ERROR: {chartError}
+        </div>
+      )}
+      <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+    </div>
+  );
 }
 
 export default function App() {
