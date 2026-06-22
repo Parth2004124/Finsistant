@@ -142,10 +142,12 @@ export default function App() {
     }, 1000);
 
     fetchWithAuth(`${API_BASE}/scan`, {method: 'POST'}).then(() => {
+      clearInterval(interval);
+      setScanProgress(100);
       setTimeout(() => {
         setIsScanning(false);
         fetchState();
-      }, 10000);
+      }, 500); // Tiny half-second delay for smooth animation finish
     }).catch(() => {
       clearInterval(interval);
       setIsScanning(false);
