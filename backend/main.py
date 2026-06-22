@@ -975,12 +975,18 @@ def update_token():
 import subprocess
 
 @app.route("/api/scan", methods=["POST"])
-@require_execution_password
 def trigger_scan():
     try:
-        # Run techsight_orchestrator in the background without --amo to force limit execution setup
-        subprocess.Popen([sys.executable, os.path.join(PARENT_DIR, "techsight_orchestrator.py")], cwd=PARENT_DIR)
-        return jsonify({"status": "success", "message": "Scan initiated in background."})
+        # Clear out old suggestions before initiating a new scan
+        conn = sqlite3.connect(QUEUE_DB_PATH)
+        conn.execute("DELETE FROM pending_trades")
+        conn.commit()
+        conn.close()
+        
+        # Run techsight_orchestrator synchronously so the frontend doesn't fetch before it finishes
+        process = subprocess.Popen([sys.executable, os.path.join(PARENT_DIR, "techsight_orchestrator.py")], cwd=PARENT_DIR)
+        process.wait()
+        return jsonify({"status": "success", "message": "Scan completed."})
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
 
@@ -995,6 +1001,10 @@ def get_portfolio():
         
         # Fetch holdings
         raw_holdings = kite.holdings()
+        try:
+            mf_raw = kite.mf_holdings()
+        except:
+            mf_raw = []
         
         invested = 0
         current_val = 0
@@ -1013,7 +1023,24 @@ def get_portfolio():
                 "qty": h.get("quantity", 0),
                 "ltp": h.get("last_price", 0),
                 "pnl": h.get("pnl", 0),
-                "net_chg": ((h.get("last_price", 0) - h.get("average_price", 0)) / h.get("average_price", 1)) * 100 if h.get("average_price", 0) > 0 else 0
+                "net_chg": ((h.get("last_price", 0) - h.get("average_price", 0)) / h.get("average_price", 1)) * 100 if h.get("average_price", 0) > 0 else 0,
+                "asset_type": "EQUITY"
+            })
+            
+        for h in mf_raw:
+            inv = h.get("average_price", 0) * h.get("quantity", 0)
+            cur = h.get("last_price", 0) * h.get("quantity", 0)
+            invested += inv
+            current_val += cur
+            pnl += h.get("pnl", 0)
+            
+            holdings.append({
+                "instrument": h.get("tradingsymbol", h.get("fund", "MF")),
+                "qty": h.get("quantity", 0),
+                "ltp": h.get("last_price", 0),
+                "pnl": h.get("pnl", 0),
+                "net_chg": ((h.get("last_price", 0) - h.get("average_price", 0)) / h.get("average_price", 1)) * 100 if h.get("average_price", 0) > 0 else 0,
+                "asset_type": "MUTUAL FUND"
             })
             
         return jsonify({

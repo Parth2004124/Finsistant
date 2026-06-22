@@ -125,6 +125,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState(null);
+  const [activeTab, setActiveTab] = useState('All');
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   
@@ -445,7 +446,9 @@ export default function App() {
         <section className="right-panel">
           <div className="holdings-section">
             <div className="holdings-tabs">
-              <span className="active-tab">Equity Holdings</span>
+              <span className={activeTab === 'All' ? "active-tab" : ""} onClick={() => setActiveTab('All')} style={{cursor: 'pointer'}}>All</span>
+              <span className={activeTab === 'Equity' ? "active-tab" : ""} onClick={() => setActiveTab('Equity')} style={{cursor: 'pointer'}}>Equity</span>
+              <span className={activeTab === 'Mutual funds' ? "active-tab" : ""} onClick={() => setActiveTab('Mutual funds')} style={{cursor: 'pointer'}}>Mutual funds</span>
             </div>
             <div className="holdings-header">
               <h3>Holdings</h3>
@@ -462,7 +465,12 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {portfolio.holdings.map((h, i) => (
+                {portfolio.holdings.filter(h => {
+                  if (activeTab === 'All') return true;
+                  if (activeTab === 'Equity' && h.asset_type !== 'MUTUAL FUND') return true;
+                  if (activeTab === 'Mutual funds' && h.asset_type === 'MUTUAL FUND') return true;
+                  return false;
+                }).map((h, i) => (
                   <tr key={i}>
                     <td>{h.instrument}</td>
                     <td>{h.qty}</td>
