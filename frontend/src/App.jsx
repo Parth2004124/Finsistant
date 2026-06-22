@@ -3,7 +3,10 @@ import { createChart } from "lightweight-charts";
 import './index.css';
 
 let API_BASE = "http://127.0.0.1:8000/api";
-try { API_BASE = localStorage.getItem("API_BASE") || API_BASE; } catch(e) {}
+try { 
+  if (localStorage.getItem("API_BASE")?.includes("ngrok")) localStorage.removeItem("API_BASE");
+  API_BASE = localStorage.getItem("API_BASE") || API_BASE; 
+} catch(e) {}
 
 const fetchWithAuth = async (url, options = {}) => {
   let pwd = '';
@@ -75,73 +78,18 @@ function ChartComponent({ data, selectedTrade }) {
     linesRef.current.forEach(l => seriesRef.current.removePriceLine(l));
     linesRef.current = [];
 
-    // Locally fetch real weekly OHLC data for the selected NSE stock using a proxy fallback loop
-    const symbol = `${selectedTrade.symbol}.NS`;
-    const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1wk&range=1y`;
-    
-    const PROXIES = [
-      { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, type: 'json' },
-      { url: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, type: 'text' },
-      { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'text' },
-      { url: (u) => `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(u)}`, type: 'text' }
-    ];
-
-    async function fetchWithFallback() {
-      for (const proxy of PROXIES) {
-        try {
-          const res = await fetch(proxy.url(yfUrl));
-          if (!res.ok) continue;
-          
-          let content = proxy.type === 'json' ? (await res.json()).contents : await res.text();
-          const data = JSON.parse(content);
-          
-          if (data.chart && data.chart.result && data.chart.result.length > 0) {
-            const result = data.chart.result[0];
-            const timestamps = result.timestamp;
-            const ohlc = result.indicators.quote[0];
-            
-            const chartData = [];
-            for (let i = 0; i < timestamps.length; i++) {
-              if (ohlc.open[i] == null) continue;
-              chartData.push({
-                time: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
-                open: parseFloat(ohlc.open[i].toFixed(2)),
-                high: parseFloat(ohlc.high[i].toFixed(2)),
-                low: parseFloat(ohlc.low[i].toFixed(2)),
-                close: parseFloat(ohlc.close[i].toFixed(2))
-              });
-            }
-            
-            // Remove duplicates by time
-            const uniqueData = [];
-            const seen = new Set();
-            for (const c of chartData) {
-              if (!seen.has(c.time)) {
-                seen.add(c.time);
-                uniqueData.push(c);
-              }
-            }
-            // Ensure strictly ascending
-            uniqueData.sort((a, b) => new Date(a.time) - new Date(b.time));
-            
-            seriesRef.current.setData(uniqueData);
-            
-            const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
-            const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
-            const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
-            
-            linesRef.current = [l1, l2, l3];
-            chartRef.current.timeScale().fitContent();
-            return; // Success, break out of loop
-          }
-        } catch (e) {
-          console.warn(`Proxy ${proxy.url('x')} failed:`, e);
-        }
-      }
-      console.error("All proxies failed to fetch OHLC data");
+    if (selectedTrade.ohlc && selectedTrade.ohlc.length > 0) {
+      seriesRef.current.setData(selectedTrade.ohlc);
+      
+      const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
+      const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
+      const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
+      
+      linesRef.current = [l1, l2, l3];
+      chartRef.current.timeScale().fitContent();
+    } else {
+      console.error("No OHLC data found for selected trade");
     }
-
-    fetchWithFallback();
     
   }, [selectedTrade]);
 

@@ -106,6 +106,26 @@ def get_holdings():
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
 
+import yfinance as yf
+
+@app.route("/api/chart/<symbol>", methods=["GET"])
+def get_chart(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1y", interval="1wk")
+        chart_data = []
+        for index, row in df.iterrows():
+            chart_data.append({
+                "time": index.strftime("%Y-%m-%d"),
+                "open": round(row['Open'], 2),
+                "high": round(row['High'], 2),
+                "low": round(row['Low'], 2),
+                "close": round(row['Close'], 2)
+            })
+        return jsonify({"status": "success", "data": chart_data})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
 import sqlite3
 import json
 import uuid
@@ -553,11 +573,31 @@ def get_queue():
         rows = c.fetchall()
         conn.close()
         
+        import yfinance as yf
         trades = []
         for row in rows:
             trade = dict(row)
             trade['rationale'] = json.loads(trade['rationale'])
             trade['trade_params'] = json.loads(trade['trade_params'])
+            
+            # Fetch 1 month OHLC data for the chart directly into the queue
+            try:
+                symbol = f"{trade['symbol']}.NS"
+                df = yf.Ticker(symbol).history(period="1mo", interval="1d")
+                ohlc_data = []
+                for index, r in df.iterrows():
+                    ohlc_data.append({
+                        "time": index.strftime("%Y-%m-%d"),
+                        "open": round(r['Open'], 2),
+                        "high": round(r['High'], 2),
+                        "low": round(r['Low'], 2),
+                        "close": round(r['Close'], 2)
+                    })
+                trade['ohlc'] = ohlc_data
+            except Exception as e:
+                print(f"Failed to fetch OHLC for {trade['symbol']}: {e}")
+                trade['ohlc'] = []
+                
             trades.append(trade)
             
         return jsonify({"status": "success", "data": trades})
