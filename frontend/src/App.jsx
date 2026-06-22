@@ -136,9 +136,9 @@ export default function App() {
     
     let progress = 0;
     const interval = setInterval(() => {
-      progress += 10;
-      setScanProgress(progress);
-      if (progress >= 100) clearInterval(interval);
+      // Progress moves quickly at first, then slows down asymptotically towards 95%
+      progress += (95 - progress) * 0.15;
+      setScanProgress(Math.floor(progress));
     }, 1000);
 
     fetchWithAuth(`${API_BASE}/scan`, {method: 'POST'}).then(() => {
