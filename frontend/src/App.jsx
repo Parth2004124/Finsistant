@@ -4,7 +4,6 @@ import './index.css';
 
 let API_BASE = "http://localhost:8000/api";
 try { 
-  if (localStorage.getItem("API_BASE")?.includes("ngrok")) localStorage.removeItem("API_BASE");
   API_BASE = localStorage.getItem("API_BASE") || API_BASE; 
 } catch(e) {}
 
@@ -14,6 +13,7 @@ const fetchWithAuth = async (url, options = {}) => {
   if (!options.headers) options.headers = {};
   options.headers['Authorization'] = `Bearer ${pwd}`;
   options.headers['Content-Type'] = 'application/json';
+  options.headers['ngrok-skip-browser-warning'] = 'true';
 
   let res = await fetch(url, options);
   if (res.status === 401) {
@@ -156,7 +156,7 @@ export default function App() {
   };
 
   const fetchState = () => {
-    fetch(`${API_BASE}/queue`).then(r => r.json()).then(d => {
+    fetch(`${API_BASE}/queue`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
       if (d.data && Array.isArray(d.data)) {
         const parsePrice = (val) => {
           if (typeof val === 'number') return val;
@@ -195,11 +195,11 @@ export default function App() {
       }
     });
 
-    fetch(`${API_BASE}/auto-approve/rules`).then(r => r.json()).then(d => {
+    fetch(`${API_BASE}/auto-approve/rules`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
       if (d.data) setRules(d.data);
     });
 
-    fetch(`${API_BASE}/portfolio`).then(r => r.json()).then(d => {
+    fetch(`${API_BASE}/portfolio`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
       if (d.status === "success") setPortfolio(d);
     }).catch(e => console.error("Portfolio fetch failed", e));
   };
@@ -221,7 +221,7 @@ export default function App() {
 
     try {
       let res = await fetch(`${API_BASE}/chat`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: userMsg })
+        method: "POST", headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" }, body: JSON.stringify({ message: userMsg })
       });
       let data = await res.json();
       setChatHistory(prev => [...prev, { role: "bot", text: data.reply }]);
@@ -292,7 +292,10 @@ export default function App() {
       <header className="top-header">
         <div className="header-left">
           <div className="logo-box">TS</div>
-          <div className="greeting">{getGreeting()} Parth!</div>
+          <div className="greeting">{getGreeting()} Parth! <span style={{cursor:'pointer', marginLeft: 8}} onClick={() => {
+            const url = window.prompt("Enter new API URL (e.g. ngrok or IP):", API_BASE);
+            if (url) { localStorage.setItem("API_BASE", url); window.location.reload(); }
+          }}>⚙️</span></div>
         </div>
         <div className="header-mid">
           Invested - {fmt(portfolio.stats.invested || 0, 0)} &nbsp;&nbsp; Current - {fmt(portfolio.stats.current || 0, 0)}
