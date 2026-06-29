@@ -1,0 +1,175 @@
+import sys
+import os
+import json
+import sqlite3
+import yfinance as yf
+from datetime import datetime
+
+def safe_float(val, multiplier=1.0, default=0.0):
+    if val is None:
+        return default
+    try:
+        return float(val) * multiplier
+    except (ValueError, TypeError):
+        return default
+
+def calculate_fundamental_score(info):
+    scores = {"business": 0, "moat": 0, "management": 0, "risk": 0, "total": 0, "explanation": ""}
+    reasons = []
+
+    # Map yfinance info to StockSight V2 metrics
+    roe = safe_float(info.get('returnOnEquity'), 100)
+    roce = safe_float(info.get('returnOnAssets'), 100) # Proxy for ROCE if not perfectly available
+    salesGrowth = safe_float(info.get('revenueGrowth'), 100)
+    profitGrowth = safe_float(info.get('earningsGrowth'), 100)
+    opm = safe_float(info.get('operatingMargins'), 100)
+    pe = safe_float(info.get('trailingPE'))
+    mcap = safe_float(info.get('marketCap'), 1/(10**7)) # Convert to Crores
+    beta = safe_float(info.get('beta'), default=1.0)
+    ret1y = safe_float(info.get('52WeekChange'), 100)
+    name = str(info.get('longName', info.get('shortName', ''))).upper()
+
+    isAutoOrPower = any(k in name for k in ["MOTORS", "AUTO", "POWER", "ENERGY", "STEEL"])
+    isFinancial = not isAutoOrPower and ((roce < 12 and roe > 15) or any(k in name for k in ["FINANCE", "BANK", "CAPITAL", "HOLDINGS"]))
+
+    # Sales Growth
+    if salesGrowth > 15: scores["business"] += 15
+    elif salesGrowth > 8: scores["business"] += 10
+    elif salesGrowth > 0: scores["business"] += 5
+    elif salesGrowth > -10: 
+        scores["business"] += 2
+        reasons.append("Sales Drag")
+
+    # Profit Growth
+    if profitGrowth > 15: scores["business"] += 15
+    elif profitGrowth > 8: scores["business"] += 10
+    elif profitGrowth > 0: scores["business"] += 5
+    elif profitGrowth > -20:
+        scores["business"] += 2
+        reasons.append("Profit Drag")
+
+    if isFinancial:
+        if roe > 15: scores["business"] += 10
+        elif roe > 10: scores["business"] += 5
+        elif roe > 5: scores["business"] += 2
+    else:
+        if opm > 20: scores["business"] += 10
+        elif opm > 12: scores["business"] += 5
+        elif opm > 8:
+            scores["business"] += 2
+            reasons.append("Low Margin")
+            
+    scores["business"] = min(40, scores["business"])
+
+    # Moat
+    if isFinancial:
+        if roe > 18: scores["moat"] += 8
+        elif roe > 12: scores["moat"] += 5
+    else:
+        if opm > 18: scores["moat"] += 5
+        if roce > 20: scores["moat"] += 5
+        
+    if mcap > 20000: scores["moat"] += 5
+    elif mcap > 5000: scores["moat"] += 3
+    
+    if profitGrowth > salesGrowth: scores["moat"] += 5
+    if ret1y > 40: scores["moat"] = max(scores["moat"] + 5, 18)
+    scores["moat"] = min(20, scores["moat"])
+
+    # Management
+    if pe > 0:
+        if pe < 15 and (profitGrowth > 10 or roe > 15): scores["management"] += 20
+        elif pe < 25: scores["management"] += 10
+        elif pe < 60: scores["management"] += 5
+    else:
+        if mcap > 50000:
+            scores["management"] += 10
+            reasons.append("Turnaround Giant")
+        elif mcap > 10000:
+            scores["management"] += 5
+            reasons.append("Recovering")
+    scores["management"] = min(20, scores["management"])
+
+    # Risk
+    if mcap > 0:
+        if mcap < 500:
+            scores["risk"] -= 10
+            reasons.append("Micro Cap Risk")
+        elif mcap > 5000: scores["risk"] += 10
+        elif mcap > 2000: scores["risk"] += 5
+        
+    if ret1y > 40: scores["risk"] += 10
+    else:
+        if beta < 1.1: scores["risk"] += 10
+        elif beta < 1.3: scores["risk"] += 5
+    scores["risk"] = max(0, min(20, scores["risk"]))
+
+    # Total
+    scores["total"] = scores["business"] + scores["moat"] + scores["management"] + scores["risk"]
+
+    if pe < 15 and roe > 15 and profitGrowth > 0:
+        scores["total"] += 15
+        reasons.append("High Quality Value")
+    elif pe < 12 and profitGrowth > 10:
+        scores["total"] += 10
+        reasons.append("Deep Value")
+
+    scores["total"] = min(99, scores["total"])
+    
+    if reasons:
+        scores["explanation"] = " & ".join(reasons[:2])
+    else:
+        scores["explanation"] = "Stable" if scores["total"] > 50 else "Weak"
+
+    return scores
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python fundamental_engine.py <symbol>")
+        sys.exit(1)
+        
+    symbol = sys.argv[1].upper()
+    db_path = "fundamentals.db"
+    
+    # Initialize DB
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS fundamentals (
+            symbol TEXT PRIMARY KEY,
+            scores_json TEXT,
+            last_updated DATETIME
+        )
+    ''')
+    conn.commit()
+    
+    print(f"Fetching fundamental data for {symbol}...")
+    
+    # Format symbol for yfinance (append .NS if it's an Indian stock)
+    yf_sym = symbol
+    if not symbol.endswith(".NS") and not symbol.endswith(".BO"):
+        yf_sym = f"{symbol}.NS"
+        
+    ticker = yf.Ticker(yf_sym)
+    info = ticker.info
+    
+    if not info or 'regularMarketPrice' not in info and 'currentPrice' not in info and 'previousClose' not in info:
+        print(f"Could not fetch reliable data for {yf_sym}")
+        # Insert a failed record
+        c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?)", 
+                  (symbol, json.dumps({"error": "Data unavailable"}), datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        sys.exit(0)
+        
+    scores = calculate_fundamental_score(info)
+    print(f"Calculated scores: {scores}")
+    
+    c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?)", 
+              (symbol, json.dumps(scores), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    print("Done.")
+
+if __name__ == "__main__":
+    main()

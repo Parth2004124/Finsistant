@@ -20,7 +20,7 @@ class DataFetcher:
         
         try:
             ticker = yf.Ticker(yf_symbol)
-            df_daily = ticker.history(period=period)
+            df_daily = ticker.history(period=period, timeout=15)
             
             if df_daily.empty:
                 print(f"[DataFetcher] Warning: No data found for {yf_symbol}")
