@@ -125,20 +125,28 @@ def calculate_fundamental_score(info):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python fundamental_engine.py <symbol>")
+        print("Usage: python fundamental_engine.py <symbol> [--is-holding]")
         sys.exit(1)
         
     symbol = sys.argv[1].upper()
+    is_holding = 1 if "--is-holding" in sys.argv else 0
     db_path = "fundamentals.db"
     
     # Initialize DB
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
+    # Check if we need to recreate the table (missing is_holding column)
+    c.execute("PRAGMA table_info(fundamentals)")
+    columns = [col[1] for col in c.fetchall()]
+    if "is_holding" not in columns:
+        c.execute("DROP TABLE IF EXISTS fundamentals")
+        
     c.execute('''
         CREATE TABLE IF NOT EXISTS fundamentals (
             symbol TEXT PRIMARY KEY,
             scores_json TEXT,
-            last_updated DATETIME
+            last_updated DATETIME,
+            is_holding INTEGER DEFAULT 0
         )
     ''')
     conn.commit()
@@ -151,13 +159,21 @@ def main():
         yf_sym = f"{symbol}.NS"
         
     ticker = yf.Ticker(yf_sym)
-    info = ticker.info
+    try:
+        info = ticker.info
+    except Exception as e:
+        print(f"yfinance network error for {yf_sym}: {e}")
+        c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?, ?)", 
+                  (symbol, json.dumps({"error": "Network timeout fetching data"}), datetime.now().isoformat(), is_holding))
+        conn.commit()
+        conn.close()
+        sys.exit(0)
     
-    if not info or 'regularMarketPrice' not in info and 'currentPrice' not in info and 'previousClose' not in info:
+    if not info or ('regularMarketPrice' not in info and 'currentPrice' not in info and 'previousClose' not in info):
         print(f"Could not fetch reliable data for {yf_sym}")
         # Insert a failed record
-        c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?)", 
-                  (symbol, json.dumps({"error": "Data unavailable"}), datetime.now().isoformat()))
+        c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?, ?)", 
+                  (symbol, json.dumps({"error": "Data unavailable"}), datetime.now().isoformat(), is_holding))
         conn.commit()
         conn.close()
         sys.exit(0)
@@ -165,8 +181,8 @@ def main():
     scores = calculate_fundamental_score(info)
     print(f"Calculated scores: {scores}")
     
-    c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?)", 
-              (symbol, json.dumps(scores), datetime.now().isoformat()))
+    c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?, ?)", 
+              (symbol, json.dumps(scores), datetime.now().isoformat(), is_holding))
     conn.commit()
     conn.close()
     print("Done.")

@@ -191,9 +191,67 @@ function MainApp() {
   const [fundAccordionSymbol, setFundAccordionSymbol] = useState(null);
   const [fundData, setFundData] = useState(null);
   const [fundLoading, setFundLoading] = useState(false);
+  const [holdingFundData, setHoldingFundData] = useState({});
+  const [holdingFundLoading, setHoldingFundLoading] = useState({});
+  const [expandedHoldings, setExpandedHoldings] = useState({});
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
+
+  // Background scanner for holdings
+  useEffect(() => {
+      if (!portfolio || !portfolio.holdings || portfolio.holdings.length === 0) return;
+      
+      const scanHoldingsSequentially = async () => {
+          for (let h of portfolio.holdings) {
+              const sym = h.instrument;
+              // Skip if already scanned or currently scanning
+              if (holdingFundData[sym] || holdingFundLoading[sym]) continue;
+              
+              setHoldingFundLoading(prev => ({...prev, [sym]: true}));
+              try {
+                  // Check if it already exists
+                  let res = await fetch(`${API_BASE}/fundamentals/${sym}?is_holding=true`, {headers: {'ngrok-skip-browser-warning': 'true'}});
+                  let data = await res.json();
+                  if (data.status === 'success' && data.data) {
+                      setHoldingFundData(prev => ({...prev, [sym]: data.data}));
+                      setHoldingFundLoading(prev => ({...prev, [sym]: false}));
+                  } else {
+                      // Trigger scan
+                      await fetch(`${API_BASE}/fundamentals/${sym}`, {
+                          method: 'POST', 
+                          headers: {'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json'},
+                          body: JSON.stringify({is_holding: true})
+                      });
+                      
+                      // Poll until success or timeout (try up to 15 times, i.e., 45s)
+                      let attempts = 0;
+                      while (attempts < 15) {
+                          await new Promise(r => setTimeout(r, 3000));
+                          let r2 = await fetch(`${API_BASE}/fundamentals/${sym}?is_holding=true`, {headers: {'ngrok-skip-browser-warning': 'true'}});
+                          let d2 = await r2.json();
+                          if (d2.status === 'success' && d2.data) {
+                              setHoldingFundData(prev => ({...prev, [sym]: d2.data}));
+                              setHoldingFundLoading(prev => ({...prev, [sym]: false}));
+                              break;
+                          }
+                          attempts++;
+                      }
+                      if (attempts >= 15) {
+                          setHoldingFundData(prev => ({...prev, [sym]: {error: "Timed out"}}));
+                          setHoldingFundLoading(prev => ({...prev, [sym]: false}));
+                      }
+                  }
+              } catch (e) {
+                  setHoldingFundData(prev => ({...prev, [sym]: {error: "Failed"}}));
+                  setHoldingFundLoading(prev => ({...prev, [sym]: false}));
+              }
+              // Wait 1 second between processing different holdings to spread load
+              await new Promise(r => setTimeout(r, 1000));
+          }
+      };
+      scanHoldingsSequentially();
+  }, [portfolio.holdings]);
   const [simulatingTrades, setSimulatingTrades] = useState({});
   
   const chatEndRef = useRef(null);
@@ -389,13 +447,67 @@ function MainApp() {
   const pnlColor = portfolio.stats.pnl >= 0 ? '#39d353' : '#ff4976';
   const topSell = sells.length > 0 ? sells[0] : null;
 
+  const toggleFundamentalAccordion = (symbol) => {
+    if (fundAccordionSymbol === symbol && showFundAccordion) {
+      setShowFundAccordion(false);
+      setFundAccordionSymbol(null);
+    } else {
+      setFundAccordionSymbol(symbol);
+      setShowFundAccordion(true);
+      setFundLoading(true);
+      setFundData(null);
+
+      const checkFund = async () => {
+        try {
+          let res = await fetch(`${API_BASE}/fundamentals/${symbol}?is_holding=false`, {headers: {'ngrok-skip-browser-warning': 'true'}});
+          let data = await res.json();
+          if (data.status === 'success' && data.data) {
+             setFundData(data.data);
+             setFundLoading(false);
+          } else {
+             // Not found, so trigger the backend to start it
+             await fetch(`${API_BASE}/fundamentals/${symbol}`, {
+                 method: 'POST', 
+                 headers: {'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json'},
+                 body: JSON.stringify({is_holding: false})
+             });
+             // Poll every 3 seconds
+             const intId = setInterval(async () => {
+                 try {
+                     let r2 = await fetch(`${API_BASE}/fundamentals/${symbol}?is_holding=false`, {headers: {'ngrok-skip-browser-warning': 'true'}});
+                     let d2 = await r2.json();
+                     if (d2.status === 'success' && d2.data) {
+                         setFundData(d2.data);
+                         setFundLoading(false);
+                         clearInterval(intId);
+                     }
+                 } catch(e){}
+             }, 3000);
+             // Stop polling after 45 seconds to prevent infinite loops
+             setTimeout(() => {
+                 clearInterval(intId);
+                 setFundLoading((prev) => {
+                     if (prev) setFundData({error: "Fundamental engine timed out."});
+                     return false;
+                 });
+             }, 45000);
+          }
+        } catch(e) {
+          setFundLoading(false);
+          setFundData({error: "Connection failed."});
+        }
+      };
+      checkFund();
+    }
+  };
+
   return (
     <div className="layout-container">
       {/* HEADER */}
       <header className="top-header">
         <div className="header-left">
           <div className="logo-box">TS</div>
-          <div className="greeting">Good morning Parth!</div>
+          <div className="greeting">{new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'} Parth!</div>
         </div>
         <div className="header-mid">
           Invested - {fmt(portfolio.stats.invested || 0, 0)} &nbsp;&nbsp; Current - {fmt(portfolio.stats.current || 0, 0)}
@@ -413,16 +525,9 @@ function MainApp() {
         <section className="left-panel">
           <div className="panel-header">
             <h3>Top picks today</h3>
-            {isScanning ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 100, height: 6, background: '#333', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#fff', width: `${scanProgress}%`, transition: 'width 0.3s' }}></div>
-                </div>
-                <span style={{ fontSize: 12, color: '#888' }}>{scanProgress}%</span>
-              </div>
-            ) : (
-              <button className="white-btn" onClick={handleScan}>Scan Now</button>
-            )}
+            <button className="white-btn" onClick={handleScan}>
+              {isScanning ? `Scanning... ${scanProgress}%` : "Scan Now"}
+            </button>
           </div>
           
           <div className="picks-table">
@@ -485,7 +590,7 @@ function MainApp() {
                     {fundLoading ? (
                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
                             <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }}></div>
-                            <div style={{ color: '#8b949e', fontSize: 13 }}>Fetching from StockSight Engine...</div>
+                            <div style={{ color: '#8b949e', fontSize: 13 }}>Running Independent Fundamental Engine...</div>
                          </div>
                     ) : fundData && !fundData.error ? (
                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -631,20 +736,70 @@ function MainApp() {
                   <th>LTP</th>
                   <th>P&L</th>
                   <th>Net chg</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {portfolio.holdings.map((h, i) => (
-                  <tr key={i}>
+                {portfolio.holdings.map((h, i) => [
+                  <tr key={`row-${i}`}>
                     <td>{h.instrument}</td>
                     <td>{h.qty}</td>
                     <td>{fmt(h.ltp)}</td>
                     <td style={{ color: h.pnl >= 0 ? '#39d353' : '#ff4976' }}>{fmt(h.pnl)}</td>
                     <td style={{ color: h.net_chg >= 0 ? '#39d353' : '#ff4976' }}>{fmtPct(h.net_chg)}</td>
-                  </tr>
-                ))}
+                    <td>
+                      <button 
+                          className="white-btn" 
+                          style={{ padding: '2px 8px', background: expandedHoldings[h.instrument] ? '#333' : 'transparent', color: '#fff', border: '1px solid #333', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 6 }}
+                          onClick={() => setExpandedHoldings(prev => ({...prev, [h.instrument]: !prev[h.instrument]}))}
+                          title="Fundamental Analysis"
+                      >
+                          {holdingFundLoading[h.instrument] ? <div className="spinner" style={{ width: 10, height: 10, borderWidth: 1 }}></div> : null}
+                          ?
+                      </button>
+                    </td>
+                  </tr>,
+                  expandedHoldings[h.instrument] && (
+                    <tr key={`acc-${i}`}>
+                      <td colSpan="6" style={{ padding: '10px', background: '#111216', borderBottom: '1px solid #30363d' }}>
+                        {holdingFundLoading[h.instrument] ? (
+                           <div style={{ color: '#8b949e', fontSize: 12 }}>Running Independent Fundamental Engine...</div>
+                        ) : holdingFundData[h.instrument] && !holdingFundData[h.instrument].error ? (
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fff' }}>
+                                 <span>Score: <strong>{holdingFundData[h.instrument].total}/99</strong></span>
+                                 <span>{holdingFundData[h.instrument].explanation}</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#8b949e' }}>
+                                 <span>Biz: {holdingFundData[h.instrument].business}</span>
+                                 <span>Moat: {holdingFundData[h.instrument].moat}</span>
+                                 <span>Mgmt: {holdingFundData[h.instrument].management}</span>
+                                 <span>Risk: {holdingFundData[h.instrument].risk}</span>
+                              </div>
+                           </div>
+                        ) : (
+                           <div style={{ color: '#ff6b6b', fontSize: 12 }}>{holdingFundData[h.instrument]?.error || "Failed to fetch fundamental data."}</div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                ])}
               </tbody>
             </table>
+            <div style={{ padding: '10px' }}>
+                <button 
+                  className="white-btn" 
+                  style={{ width: '100%', fontSize: 11 }}
+                  onClick={async () => {
+                      await fetch(`${API_BASE}/fundamentals/rescan-holdings`, {method: 'POST'});
+                      setHoldingFundData({});
+                      // Trick to re-trigger the useEffect by copying the array
+                      setPortfolio(prev => ({...prev, holdings: [...prev.holdings]}));
+                  }}
+                >
+                  ↻ Re-Scan Fundamentals
+                </button>
+            </div>
           </div>
 
           <div className="chat-section">

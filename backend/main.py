@@ -606,16 +606,24 @@ def update_order(trade_id):
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 @app.route("/api/fundamentals/<symbol>", methods=["POST"])
-@require_execution_password
 def start_fundamental_analysis(symbol):
     try:
-        subprocess.Popen([sys.executable, 'fundamental_engine.py', symbol])
+        data = request.json or {}
+        is_holding = data.get("is_holding", False)
+        
+        args = [sys.executable, 'fundamental_engine.py', symbol]
+        if is_holding:
+            args.append("--is-holding")
+            
+        f_log = open("fundamental_spawn.log", "a")
+        subprocess.Popen(args, stdout=f_log, stderr=f_log)
         return jsonify({"status": "success", "message": "Fundamental engine started."})
     except Exception as e:
-        return jsonify({"status": "error", "detail": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/fundamentals/<symbol>", methods=["GET"])
 def get_fundamental_analysis(symbol):
+    is_holding = request.args.get("is_holding", "false").lower() == "true"
     db_path = "fundamentals.db"
     if not os.path.exists(db_path):
         return jsonify({"status": "pending"})
@@ -625,15 +633,35 @@ def get_fundamental_analysis(symbol):
         c = conn.cursor()
         c.execute("SELECT scores_json FROM fundamentals WHERE symbol = ?", (symbol.upper(),))
         row = c.fetchone()
-        conn.close()
         
         if row:
             scores = json.loads(row[0])
+            if not is_holding:
+                c.execute("DELETE FROM fundamentals WHERE symbol = ?", (symbol.upper(),))
+                conn.commit()
+            conn.close()
             return jsonify({"status": "success", "data": scores})
-    except Exception:
+            
+        conn.close()
+    except Exception as e:
+        print(f"Error fetching fundamental: {e}")
         pass
         
     return jsonify({"status": "pending"})
+
+@app.route("/api/fundamentals/rescan-holdings", methods=["POST"])
+def rescan_holdings():
+    try:
+        db_path = "fundamentals.db"
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("DELETE FROM fundamentals WHERE is_holding = 1")
+            conn.commit()
+            conn.close()
+        return jsonify({"status": "success", "message": "Holdings cache cleared."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/queue", methods=["GET"])
 def get_queue():
@@ -1162,8 +1190,9 @@ def get_portfolio():
 def simulate_trade_api(trade_id):
     try:
         # Spawn the karlos simulator as an independent background process
+        k_log = open("karlos_spawn.log", "a")
         subprocess.Popen([sys.executable, "karlos_simulator.py", trade_id], 
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=k_log, stderr=k_log)
         return jsonify({"status": "success", "message": f"Karlos simulation started for trade {trade_id}"})
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500

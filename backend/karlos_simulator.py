@@ -4,7 +4,13 @@ import json
 import sqlite3
 import pandas as pd
 import warnings
+from datetime import datetime
 warnings.filterwarnings('ignore')
+
+def log_msg(msg):
+    with open("karlos.log", "a") as f:
+        f.write(f"[{datetime.now()}] {msg}\n")
+    print(msg)
 
 # Point to the Kronos repo for the model architecture
 sys.path.append(r"C:\Users\parth\Desktop\Kronos")
