@@ -20,6 +20,12 @@ if __name__ == "__main__":
         
         with open('ngrok_url.txt', 'w') as f:
             f.write(public_url)
+            
+        print("Syncing ngrok URL to GitHub...")
+        os.system('git add ngrok_url.txt')
+        os.system('git commit -m "Auto-update ngrok URL"')
+        os.system('git push origin master')
+        print("Sync complete!")
     except Exception as e:
         print(f"Ngrok is likely already running. Ignoring error: {e}")
 

@@ -313,10 +313,24 @@ function MainApp() {
   }, [simulatingTrades]);
 
   useEffect(() => {
-    fetchState();
-    fetch(`${API_BASE}/portfolio`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
-      if (d.status === "success") setPortfolio(d);
-    }).catch(e => console.error("Portfolio fetch failed", e));
+    const initApp = async () => {
+      try {
+        const resp = await fetch("https://raw.githubusercontent.com/Parth2004124/Finsistant/master/backend/ngrok_url.txt?t=" + Date.now());
+        const text = await resp.text();
+        if (text.startsWith("http")) {
+          API_BASE = text.trim() + "/api";
+          localStorage.setItem("API_BASE", API_BASE);
+        }
+      } catch(e) {
+        console.error("Failed to fetch dynamic API URL:", e);
+      }
+      
+      fetchState();
+      fetch(`${API_BASE}/portfolio`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
+        if (d.status === "success") setPortfolio(d);
+      }).catch(e => console.error("Portfolio fetch failed", e));
+    };
+    initApp();
   }, []);
 
   useEffect(() => {
