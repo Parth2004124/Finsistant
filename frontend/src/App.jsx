@@ -399,7 +399,16 @@ function MainApp() {
         <section className="left-panel">
           <div className="panel-header">
             <h3>Top picks today</h3>
-            <button className="white-btn" onClick={() => fetchWithAuth(`${API_BASE}/scan`, {method: 'POST'}).then(()=>fetchState())}>Scan Now</button>
+            {isScanning ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 100, height: 6, background: '#333', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', background: '#fff', width: `${scanProgress}%`, transition: 'width 0.3s' }}></div>
+                </div>
+                <span style={{ fontSize: 12, color: '#888' }}>{scanProgress}%</span>
+              </div>
+            ) : (
+              <button className="white-btn" onClick={handleScan}>Scan Now</button>
+            )}
           </div>
           
           <div className="picks-table">
