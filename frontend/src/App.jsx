@@ -792,6 +792,12 @@ function MainApp() {
         >
           Analytics
         </div>
+        <div 
+          className={`nav-tab ${activeAppTab === 'World View' ? 'active' : ''}`}
+          onClick={() => setActiveAppTab('World View')}
+        >
+          World View
+        </div>
       </nav>
 
       {/* MAIN CONTENT AREA */}
