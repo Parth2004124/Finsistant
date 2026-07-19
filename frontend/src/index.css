@@ -33,8 +33,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  height: 60px;
+  padding: 10px 30px;
+  height: 80px;
   background: #181818;
   border-bottom: 2px solid #222;
 }
@@ -70,7 +70,36 @@ body {
   font-size: 18px;
   font-weight: 700;
   display: flex;
+}
+
+/* TOP NAVIGATION BAR */
+.top-nav-bar {
+  display: flex;
+  background: #111;
+  border-bottom: 1px solid #333;
+  padding: 0 24px;
   gap: 24px;
+}
+
+.nav-tab {
+  padding: 12px 4px;
+  color: #888;
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.nav-tab:hover {
+  color: #fff;
+}
+
+.nav-tab.active {
+  color: #007acc;
+  border-bottom-color: #007acc;
 }
 
 /* MAIN GRID */
@@ -98,6 +127,7 @@ body {
   overflow-y: auto;
   padding-right: 4px;
   min-width: 0;
+  min-height: 0;
 }
 
 .right-panel {
@@ -108,7 +138,7 @@ body {
   overflow-x: hidden;
   padding-right: 4px;
   min-width: 0;
-  max-width: 340px;
+  min-height: 0;
 }
 
 /* SHARED */
@@ -463,3 +493,99 @@ body {
   border-radius: 50%;
   cursor: pointer;
 }
+/* DENSE ANALYTICS DASHBOARD */
+.analytics-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr;
+  gap: 20px;
+  background: #0d1117;
+  padding: 20px;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  color: #c9d1d9;
+}
+
+.analytics-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.analytics-col-title {
+  font-size: 11px;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.score-bar-container {
+  width: 60%;
+  height: 6px;
+  background: #21262d;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-left: 10px;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s ease-in-out;
+}
+
+.ratios-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.ratio-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  padding: 10px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transition: border-color 0.2s;
+}
+
+.ratio-card:hover {
+  border-color: #58a6ff;
+}
+
+.ratio-card .ratio-label {
+  font-size: 10px;
+  color: #8b949e;
+  margin-bottom: 4px;
+}
+
+.ratio-card .ratio-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #c9d1d9;
+}
+
+.nlp-insight-box {
+  grid-column: 1 / -1;
+  background: rgba(88, 166, 255, 0.05);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-left: 4px solid #58a6ff;
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e6edf3;
+  margin-top: 10px;
+}
+@keyframes quantProgress { 0% { width: 0%; } 100% { width: 90%; } }

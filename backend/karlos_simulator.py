@@ -40,7 +40,22 @@ def simulate_trade(trade_id):
     
     ohlc = trade_params.get("ohlc", [])
     if not ohlc:
-        print("No historical OHLC data found for simulation.")
+        print("Historical OHLC data missing in DB, fetching fresh data from backend...")
+        import requests
+        try:
+            res = requests.get(f"http://127.0.0.1:8000/api/chart/{symbol}")
+            data = res.json()
+            if data.get("status") == "success":
+                ohlc = data.get("data", [])
+        except Exception as e:
+            print(f"Failed to fetch fresh OHLC data: {e}")
+            
+    if not ohlc:
+        print("No historical OHLC data found for simulation even after fetch attempt.")
+        # Update progress to error state so frontend doesn't hang
+        trade_params["karlos_progress"] = -1 
+        c.execute("UPDATE pending_trades SET trade_params = ? WHERE id = ?", (json.dumps(trade_params), trade_id))
+        conn.commit()
         conn.close()
         return
         

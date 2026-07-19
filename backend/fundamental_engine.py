@@ -113,6 +113,40 @@ def calculate_fundamental_score(info):
     elif pe < 12 and profitGrowth > 10:
         scores["total"] += 10
         reasons.append("Deep Value")
+        
+    # Extract Ratios for UI
+    ratios = {
+        "pe": pe,
+        "pb": safe_float(info.get('priceToBook')),
+        "debtToEquity": safe_float(info.get('debtToEquity')) / 100 if info.get('debtToEquity') else 0,
+        "divYield": safe_float(info.get('dividendYield'), 100),
+        "roe": roe,
+        "roce": roce,
+        "salesGrowth": salesGrowth,
+        "profitGrowth": profitGrowth
+    }
+    
+    # Generate NLP Analysis
+    nlp_texts = []
+    if ratios["pe"] > 0:
+        if ratios["pe"] < 15: nlp_texts.append(f"Trading at an attractive valuation with a P/E of {ratios['pe']}, indicating potential deep value.")
+        elif ratios["pe"] > 40: nlp_texts.append(f"Commands a premium valuation (P/E {ratios['pe']}), suggesting high growth expectations from the market.")
+        else: nlp_texts.append(f"Valuation appears reasonable at a P/E of {ratios['pe']}.")
+        
+    if ratios["roe"] > 15 and ratios["roce"] > 15:
+        nlp_texts.append(f"Capital efficiency is stellar, boasting an ROE of {ratios['roe']}% and ROCE of {ratios['roce']}%, which points to a strong economic moat and pricing power.")
+    elif ratios["roe"] > 0 and ratios["roe"] < 8:
+        nlp_texts.append(f"Profitability is currently subdued, with ROE sitting at a low {ratios['roe']}%.")
+        
+    if ratios["debtToEquity"] > 0:
+        if ratios["debtToEquity"] < 0.5: nlp_texts.append(f"The balance sheet is healthy with a minimal Debt-to-Equity ratio of {round(ratios['debtToEquity'], 2)}.")
+        elif ratios["debtToEquity"] > 2.0: nlp_texts.append(f"Leverage is quite high (Debt/Equity: {round(ratios['debtToEquity'], 2)}), introducing potential risk.")
+        
+    if ratios["salesGrowth"] > 15: nlp_texts.append(f"Top-line expansion remains robust with {ratios['salesGrowth']}% sales growth.")
+    elif ratios["salesGrowth"] < 0: nlp_texts.append(f"Facing headwinds, evidenced by a {abs(ratios['salesGrowth'])}% contraction in sales.")
+
+    scores["ratios"] = ratios
+    scores["nlp"] = " ".join(nlp_texts) if nlp_texts else "Insufficient fundamental data to generate a reliable AI analysis."
 
     scores["total"] = min(99, scores["total"])
     
@@ -122,6 +156,44 @@ def calculate_fundamental_score(info):
         scores["explanation"] = "Stable" if scores["total"] > 50 else "Weak"
 
     return scores
+
+def calculate_porters_score(info):
+    mcap = safe_float(info.get('marketCap') or info.get('enterpriseValue'), 1e-7)  # in Crores
+    roce = safe_float(info.get('returnOnEquity')) * 100 # Approx proxy since ROCE isn't direct
+    roe = safe_float(info.get('returnOnEquity')) * 100
+    sales_growth = safe_float(info.get('revenueGrowth')) * 100
+    profit_growth = safe_float(info.get('earningsGrowth')) * 100
+    opm = safe_float(info.get('operatingMargins')) * 100
+
+    p_score = {'entrants': 0, 'suppliers': 0, 'buyers': 0, 'substitutes': 0, 'rivalry': 0, 'total': 0}
+
+    if mcap > 10000 and roce > 20: p_score['entrants'] = 20
+    elif mcap > 5000 and roce > 15: p_score['entrants'] = 15
+    elif mcap > 2000: p_score['entrants'] = 10
+    else: p_score['entrants'] = 5
+
+    if opm > 25: p_score['suppliers'] = 20
+    elif opm > 18: p_score['suppliers'] = 15
+    elif opm > 10: p_score['suppliers'] = 10
+    else: p_score['suppliers'] = 5
+
+    if roe > 22: p_score['buyers'] = 20
+    elif roe > 16: p_score['buyers'] = 15
+    elif roe > 12: p_score['buyers'] = 10
+    else: p_score['buyers'] = 5
+
+    if sales_growth > 15: p_score['substitutes'] = 20
+    elif sales_growth > 10: p_score['substitutes'] = 15
+    elif sales_growth > 5: p_score['substitutes'] = 10
+    else: p_score['substitutes'] = 5
+
+    if profit_growth > 15: p_score['rivalry'] = 20
+    elif profit_growth > 10: p_score['rivalry'] = 15
+    elif profit_growth > 0: p_score['rivalry'] = 10
+    else: p_score['rivalry'] = 5
+
+    p_score['total'] = min(99, sum(p_score.values()) - p_score['total'])
+    return p_score
 
 def main():
     if len(sys.argv) < 2:
@@ -179,6 +251,7 @@ def main():
         sys.exit(0)
         
     scores = calculate_fundamental_score(info)
+    scores['porters'] = calculate_porters_score(info)
     print(f"Calculated scores: {scores}")
     
     c.execute("INSERT OR REPLACE INTO fundamentals VALUES (?, ?, ?, ?)", 

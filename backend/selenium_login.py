@@ -23,9 +23,11 @@ password = os.environ.get("KITE_PASSWORD", "")
 totp_secret = os.environ.get("KITE_TOTP_SECRET", "")
 
 def place_order():
-    print("Starting VISIBLE Chrome...")
+    print("Starting HEADLESS Chrome...")
     options = Options()
     options.add_argument('--window-size=1920,1080')
+    options.add_argument('--headless=new')
+    options.add_argument('--disable-gpu')
     
     driver = webdriver.Chrome(options=options)
     

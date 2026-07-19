@@ -16,6 +16,8 @@
     "lightweight-charts": "^4.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.9.2",
     "tslib": "^2.8.1"
   },
   "devDependencies": {

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createChart } from "lightweight-charts";
 import './index.css';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import ReactMarkdown from 'react-markdown';
 
 let API_BASE = "http://127.0.0.1:8000/api";
 try { API_BASE = localStorage.getItem("API_BASE") || API_BASE; } catch(e) {}
@@ -65,7 +67,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-function ChartComponent({ data, selectedTrade }) {
+function ChartComponent({ data, selectedTrade, chartType = 'candle' }) {
   const chartContainerRef = useRef();
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
@@ -89,15 +91,23 @@ function ChartComponent({ data, selectedTrade }) {
     });
     chartRef.current = chart;
 
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#4bffb5',
-      downColor: '#ff4976',
-      borderDownColor: '#ff4976',
-      borderUpColor: '#4bffb5',
-      wickDownColor: '#ff4976',
-      wickUpColor: '#4bffb5',
-    });
-    seriesRef.current = candleSeries;
+    if (chartType === 'line') {
+      const lineSeries = chart.addLineSeries({
+        color: '#1e90ff',
+        lineWidth: 2,
+      });
+      seriesRef.current = lineSeries;
+    } else {
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: '#39d353',
+        downColor: '#ff4976',
+        borderDownColor: '#ff4976',
+        borderUpColor: '#39d353',
+        wickDownColor: '#ff4976',
+        wickUpColor: '#39d353',
+      });
+      seriesRef.current = candleSeries;
+    }
 
     const handleResize = () => {
       chart.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -127,13 +137,25 @@ function ChartComponent({ data, selectedTrade }) {
 
     if (selectedTrade.ohlc && selectedTrade.ohlc.length > 0) {
       try {
-        seriesRef.current.setData(selectedTrade.ohlc);
+        if (chartType === 'line') {
+          const lineData = selectedTrade.ohlc.map(d => ({ time: d.time, value: d.close || d.value }));
+          seriesRef.current.setData(lineData);
+        } else {
+          seriesRef.current.setData(selectedTrade.ohlc);
+        }
 
-    const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
-    const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
-    const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
-    
-    linesRef.current = [l1, l2, l3];
+    if (selectedTrade.target) {
+      const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
+      linesRef.current.push(l1);
+    }
+    if (selectedTrade.entry) {
+      const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
+      linesRef.current.push(l2);
+    }
+    if (selectedTrade.stop) {
+      const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
+      linesRef.current.push(l3);
+    }
     
     if (selectedTrade.simulated_ohlc && selectedTrade.simulated_ohlc.length > 0) {
         simSeriesRef.current = chartRef.current.addCandlestickSeries({
@@ -156,6 +178,16 @@ function ChartComponent({ data, selectedTrade }) {
                { time: lastSim.time, value: lastSim.close }
             ]);
         }
+    }
+    
+    if (selectedTrade.regressionPoints && selectedTrade.regressionPoints.length > 0) {
+        const regSeries = chartRef.current.addLineSeries({ color: '#ffeb3b', lineWidth: 2 });
+        const upperSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
+        const lowerSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
+        
+        regSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.value })));
+        upperSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.upper })));
+        lowerSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.lower })));
     }
 
     chartRef.current.timeScale().fitContent();
@@ -181,11 +213,205 @@ function MainApp() {
   const [sells, setSells] = useState([]);
   const [rules, setRules] = useState([]);
   const [portfolio, setPortfolio] = useState({ stats: {}, holdings: [] });
+  const [sessionRenewing, setSessionRenewing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isChatPopupOpen, setIsChatPopupOpen] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState(null);
   const [activeTab, setActiveTab] = useState('All');
+  const [simulatingTrades, setSimulatingTrades] = useState({});
+  const [activeAppTab, setActiveAppTab] = useState('Terminal');
+  const [optReport, setOptReport] = useState(null);
+  const [isOptGenerating, setIsOptGenerating] = useState(false);
+
+  // --- Watchlist State ---
+  const [watchlist, setWatchlist] = useState([]);
+  const [wlSearch, setWlSearch] = useState("");
+  const [wlSuggestions, setWlSuggestions] = useState([]);
+  const [selectedWlSymbol, setSelectedWlSymbol] = useState(null);
+  const [wlOhlc, setWlOhlc] = useState(null);
+  const [isWlAutoAdding, setIsWlAutoAdding] = useState(false);
+  const [isWlQuantAnalyzing, setIsWlQuantAnalyzing] = useState(false);
+  const [stockyMsg, setStockyMsg] = useState("");
+  const [stockyReply, setStockyReply] = useState(null);
+  const [stockyLoading, setStockyLoading] = useState(false);
+  const [showWlFundAccordion, setShowWlFundAccordion] = useState(false);
+  const [showWlPortersAccordion, setShowWlPortersAccordion] = useState(false);
+
+  const handleTradeSelect = async (t) => {
+    setSelectedTrade(t);
+    try {
+      const res = await fetch(`${API_BASE}/chart/${t.symbol}`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setSelectedTrade(prev => (prev && prev.id === t.id ? { ...prev, ohlc: data.data } : prev));
+      } else {
+        setSelectedTrade(prev => (prev && prev.id === t.id ? { ...prev, ohlc: [{ error: data.detail || "Unknown error" }] } : prev));
+      }
+    } catch (err) {
+      console.error(err);
+      setSelectedTrade(prev => (prev && prev.id === t.id ? { ...prev, ohlc: [{ error: err.message }] } : prev));
+    }
+  };
+
+  const fetchWatchlist = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/watchlist`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setWatchlist(data.data);
+      }
+    } catch (err) {
+      console.error("Watchlist fetch error:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchWatchlist();
+  }, []);
+
+  const handleWlAdd = async (e) => {
+    if (e.key === 'Enter' && wlSearch.trim()) {
+      try {
+        await fetch(`${API_BASE}/watchlist/${wlSearch.trim()}`, { method: 'POST' });
+        setWlSearch("");
+        setWlSuggestions([]);
+        fetchWatchlist();
+      } catch (err) { console.error(err); }
+    }
+  };
+
+  const handleWlSearchChange = async (val) => {
+    setWlSearch(val);
+    if (!val.trim()) {
+      setWlSuggestions([]);
+      return;
+    }
+    try {
+      let res = await fetch(`${API_BASE}/search?q=${val}`);
+      let data = await res.json();
+      if (data.status === 'success') {
+        setWlSuggestions(data.results);
+      }
+    } catch(e) {}
+  };
+
+  const handleWlSuggestionClick = async (sym) => {
+    try {
+      await fetch(`${API_BASE}/watchlist/${sym}`, { method: 'POST' });
+      setWlSearch("");
+      setWlSuggestions([]);
+      fetchWatchlist();
+    } catch (err) { console.error(err); }
+  };
+
+  const handleWlRemove = async (sym) => {
+    try {
+      await fetch(`${API_BASE}/watchlist/${sym}`, { method: 'DELETE' });
+      if (selectedWlSymbol === sym) setSelectedWlSymbol(null);
+      fetchWatchlist();
+    } catch (err) { console.error(err); }
+  };
+
+  const handlePortfolioOptimization = async () => {
+    setIsOptGenerating(true);
+    setOptReport(null);
+    try {
+        await fetch(`${API_BASE}/portfolio/optimize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(portfolio)
+        });
+        
+        const poll = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE}/portfolio/optimization_status`, {headers: {'ngrok-skip-browser-warning': 'true'}});
+                const data = await res.json();
+                if (data.status === 'success') {
+                    clearInterval(poll);
+                    setOptReport(data.report);
+                    setIsOptGenerating(false);
+                }
+            } catch(e) {}
+        }, 3000);
+    } catch (e) {
+        console.error("AI Portfolio Optimization failed", e);
+        setIsOptGenerating(false);
+    }
+  };
+
+  const handleWlQuantAnalyze = async () => {
+    if (!selectedWlSymbol) return;
+    setIsWlQuantAnalyzing(true);
+    try {
+      const res = await fetch(`${API_BASE}/watchlist/quant-analyze/${selectedWlSymbol}`, { method: 'POST' });
+      await res.json();
+      
+      const poll = setInterval(async () => {
+          const w_res = await fetch(`${API_BASE}/watchlist`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+          const w_data = await w_res.json();
+          if (w_data.status === 'success') {
+              const item = w_data.data.find(x => x.symbol === selectedWlSymbol);
+              if (item && item.quant_report) {
+                  clearInterval(poll);
+                  setWatchlist(w_data.data);
+                  setIsWlQuantAnalyzing(false);
+              }
+          }
+      }, 3000);
+    } catch (err) { 
+        console.error(err); 
+        setIsWlQuantAnalyzing(false);
+    }
+  };
+
+  const handleWlAutoAdd = async () => {
+    setIsWlAutoAdding(true);
+    try {
+      const res = await fetch(`${API_BASE}/watchlist/auto-add`, { method: 'POST' });
+      await res.json();
+      fetchWatchlist();
+    } catch (err) { console.error(err); }
+    setIsWlAutoAdding(false);
+  };
+
+  const handleWlSelect = async (sym) => {
+    setSelectedWlSymbol(sym);
+    setWlOhlc(null);
+    fetchFundamentalData(sym);
+    try {
+      const res = await fetch(`${API_BASE}/chart/${sym}`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setWlOhlc(data.data);
+      } else {
+        setWlOhlc([{ error: data.detail || "Unknown error" }]);
+      }
+    } catch (err) { 
+      console.error(err); 
+      setWlOhlc([{ error: err.message }]);
+    }
+  };
+
+  const handleStockyChat = async (e) => {
+    if (e.key === 'Enter' && stockyMsg.trim()) {
+      setStockyLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/stocky`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: stockyMsg })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setStockyReply(data.reply);
+          setStockyMsg("");
+        }
+      } catch (err) { console.error(err); }
+      setStockyLoading(false);
+    }
+  };
   
   const [showFundAccordion, setShowFundAccordion] = useState(false);
   const [fundAccordionSymbol, setFundAccordionSymbol] = useState(null);
@@ -252,7 +478,7 @@ function MainApp() {
       };
       scanHoldingsSequentially();
   }, [portfolio.holdings]);
-  const [simulatingTrades, setSimulatingTrades] = useState({});
+
   
   const chatEndRef = useRef(null);
 
@@ -330,11 +556,11 @@ function MainApp() {
             if (t.simulated_ohlc) {
                 setSimulatingTrades(prev => prev[t.id] ? {...prev, [t.id]: false} : prev);
                 if (selectedTrade && selectedTrade.id === t.id && !selectedTrade.simulated_ohlc) {
-                    setSelectedTrade(t);
+                    setSelectedTrade(prev => ({...prev, simulated_ohlc: t.simulated_ohlc, karlos_progress: t.karlos_progress}));
                 }
             } else if (simulatingTrades[t.id]) {
                 if (selectedTrade && selectedTrade.id === t.id && selectedTrade.karlos_progress !== t.karlos_progress) {
-                    setSelectedTrade(t);
+                    setSelectedTrade(prev => ({...prev, karlos_progress: t.karlos_progress}));
                 }
             }
         });
@@ -349,7 +575,9 @@ function MainApp() {
         }));
         setQueue(buys);
         setSells(sellsQ);
-        if (buys.length > 0 && !selectedTrade) setSelectedTrade(buys[0]);
+        if (buys.length > 0 && !selectedTrade) {
+          handleTradeSelect(buys[0]);
+        }
       }
     }).catch(e => console.error("fetchState error:", e));
 
@@ -384,9 +612,22 @@ function MainApp() {
       }
       
       fetchState();
-      fetch(`${API_BASE}/portfolio`, {headers: {'ngrok-skip-browser-warning': 'true'}}).then(r => r.json()).then(d => {
-        if (d.status === "success") setPortfolio(d);
-      }).catch(e => console.error("Portfolio fetch failed", e));
+      const fetchPortfolioWithRetry = () => {
+        fetch(`${API_BASE}/portfolio`, {headers: {'ngrok-skip-browser-warning': 'true'}})
+          .then(async r => {
+              if (r.status === 503) {
+                  setSessionRenewing(true);
+                  setTimeout(fetchPortfolioWithRetry, 5000);
+                  return null;
+              }
+              setSessionRenewing(false);
+              return r.json();
+          })
+          .then(d => {
+            if (d && d.status === "success") setPortfolio(d);
+          }).catch(e => console.error("Portfolio fetch failed", e));
+      };
+      fetchPortfolioWithRetry();
     };
     initApp();
   }, []);
@@ -403,7 +644,7 @@ function MainApp() {
     setIsChatLoading(true);
 
     try {
-      let res = await fetch(`${API_BASE}/chat`, {
+      let res = await fetch(`${API_BASE}/stocky`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: userMsg })
       });
       let data = await res.json();
@@ -447,16 +688,9 @@ function MainApp() {
   const pnlColor = portfolio.stats.pnl >= 0 ? '#39d353' : '#ff4976';
   const topSell = sells.length > 0 ? sells[0] : null;
 
-  const toggleFundamentalAccordion = (symbol) => {
-    if (fundAccordionSymbol === symbol && showFundAccordion) {
-      setShowFundAccordion(false);
-      setFundAccordionSymbol(null);
-    } else {
-      setFundAccordionSymbol(symbol);
-      setShowFundAccordion(true);
+  const fetchFundamentalData = (symbol) => {
       setFundLoading(true);
       setFundData(null);
-
       const checkFund = async () => {
         try {
           let res = await fetch(`${API_BASE}/fundamentals/${symbol}?is_holding=false`, {headers: {'ngrok-skip-browser-warning': 'true'}});
@@ -465,13 +699,11 @@ function MainApp() {
              setFundData(data.data);
              setFundLoading(false);
           } else {
-             // Not found, so trigger the backend to start it
              await fetch(`${API_BASE}/fundamentals/${symbol}`, {
                  method: 'POST', 
                  headers: {'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json'},
                  body: JSON.stringify({is_holding: false})
              });
-             // Poll every 3 seconds
              const intId = setInterval(async () => {
                  try {
                      let r2 = await fetch(`${API_BASE}/fundamentals/${symbol}?is_holding=false`, {headers: {'ngrok-skip-browser-warning': 'true'}});
@@ -483,7 +715,6 @@ function MainApp() {
                      }
                  } catch(e){}
              }, 3000);
-             // Stop polling after 45 seconds to prevent infinite loops
              setTimeout(() => {
                  clearInterval(intId);
                  setFundLoading((prev) => {
@@ -494,12 +725,24 @@ function MainApp() {
           }
         } catch(e) {
           setFundLoading(false);
-          setFundData({error: "Connection failed."});
+          setFundData({error: "Failed to connect to backend."});
         }
       };
       checkFund();
+  };
+
+  const toggleFundamentalAccordion = (symbol) => {
+    if (fundAccordionSymbol === symbol && showFundAccordion) {
+      setShowFundAccordion(false);
+      setFundAccordionSymbol(null);
+    } else {
+      setFundAccordionSymbol(symbol);
+      setShowFundAccordion(true);
+      fetchFundamentalData(symbol);
     }
   };
+
+
 
   return (
     <div className="layout-container">
@@ -510,16 +753,50 @@ function MainApp() {
           <div className="greeting">{new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'} Parth!</div>
         </div>
         <div className="header-mid">
-          Invested - {fmt(portfolio.stats.invested || 0, 0)} &nbsp;&nbsp; Current - {fmt(portfolio.stats.current || 0, 0)}
+          {sessionRenewing ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }}></div>
+                <span style={{ color: '#1e90ff' }}>Renewing Broker Session...</span>
+            </div>
+          ) : (
+            <>Invested - {fmt(portfolio.stats.invested || 0, 0)} &nbsp;&nbsp; Current - {fmt(portfolio.stats.current || 0, 0)}</>
+          )}
         </div>
         <div className="header-right">
-          <span style={{ color: pnlColor }}>P/L - {fmt(portfolio.stats.pnl || 0, 0)}</span>
-          <span style={{ marginLeft: 20 }}>Balance-{fmt(portfolio.stats.balance || 0, 0)}</span>
+          {!sessionRenewing && (
+            <>
+              <span style={{ color: pnlColor }}>P/L - {fmt(portfolio.stats.pnl || 0, 0)}</span>
+              <span style={{ marginLeft: 20 }}>Balance-{fmt(portfolio.stats.balance || 0, 0)}</span>
+            </>
+          )}
         </div>
       </header>
 
-      {/* MAIN GRID */}
-      <main className="main-grid">
+      {/* TOP NAVIGATION BAR */}
+      <nav className="top-nav-bar">
+        <div 
+          className={`nav-tab ${activeAppTab === 'Terminal' ? 'active' : ''}`}
+          onClick={() => setActiveAppTab('Terminal')}
+        >
+          Terminal
+        </div>
+        <div 
+          className={`nav-tab ${activeAppTab === 'Watchlist' ? 'active' : ''}`}
+          onClick={() => setActiveAppTab('Watchlist')}
+        >
+          Watchlist
+        </div>
+        <div 
+          className={`nav-tab ${activeAppTab === 'Analytics' ? 'active' : ''}`}
+          onClick={() => setActiveAppTab('Analytics')}
+        >
+          Analytics
+        </div>
+      </nav>
+
+      {/* MAIN CONTENT AREA */}
+      {activeAppTab === 'Terminal' && (
+        <main className="main-grid">
         
         {/* LEFT PANEL */}
         <section className="left-panel">
@@ -532,7 +809,7 @@ function MainApp() {
           
           <div className="picks-table">
             {queue.map(t => (
-              <div key={t.id} className={`pick-row ${selectedTrade?.id === t.id ? 'selected' : ''}`} onClick={() => setSelectedTrade(t)}>
+              <div key={t.id} className={`pick-row ${selectedTrade?.id === t.id ? 'selected' : ''}`} onClick={() => handleTradeSelect(t)}>
                 <div className="pick-symbol">{t.symbol}</div>
                 <div className="pick-val bg-blue">{fmt(t.entry, 0)}</div>
                 <div className="pick-val bg-green">{fmt(t.target, 0)}</div>
@@ -803,6 +1080,7 @@ function MainApp() {
           </div>
 
           <div className="chat-section">
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Stocky AI</h3>
             <div className="explore-text">Explore what's possible</div>
             <div className="chat-actions">
               <button onClick={() => setChatInput("Deep search ONGC fundamentals")}>🔍 Deep Search</button>
@@ -811,7 +1089,7 @@ function MainApp() {
             
             <div className="chat-history">
                {chatHistory.map((msg, i) => (
-                 <div key={i} className={`chat-msg ${msg.role}`}>{msg.text}</div>
+                 <div key={i} className={`chat-msg ${msg.role}`} dangerouslySetInnerHTML={{ __html: msg.text }}></div>
                ))}
                {isChatLoading && <div className="chat-msg bot">Thinking...</div>}
                <div ref={chatEndRef} />
@@ -831,6 +1109,549 @@ function MainApp() {
         </section>
 
       </main>
+      )}
+
+      {activeAppTab === 'Watchlist' && (
+        <main className="main-grid" style={{ gridTemplateColumns: 'minmax(0, 7fr) minmax(0, 3fr)' }}>
+          
+          <section className="middle-panel" style={{ borderRight: '1px solid #30363d', paddingRight: '20px' }}>
+             {selectedWlSymbol ? (
+                <>
+                  <div className="chart-wrapper" style={{ marginBottom: '20px' }}>
+                    <div className="chart-header">
+                       <span style={{ fontSize: 12, fontWeight: 700 }}>{selectedWlSymbol} NSE (1D)</span>
+                    </div>
+                    {wlOhlc && wlOhlc.length > 0 && !wlOhlc[0].error ? (
+                        <ChartComponent selectedTrade={{ 
+                            symbol: selectedWlSymbol, 
+                            ohlc: wlOhlc,
+                            regressionPoints: watchlist.find(i => i.symbol === selectedWlSymbol)?.regression_points ? JSON.parse(watchlist.find(i => i.symbol === selectedWlSymbol).regression_points) : null
+                        }} chartType="line" />
+                    ) : wlOhlc && wlOhlc.length > 0 && wlOhlc[0].error ? (
+                        <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff5f56', fontStyle: 'italic', padding: 20, textAlign: 'center' }}>
+                            Error fetching chart: {wlOhlc[0].error}
+                        </div>
+                    ) : (
+                        <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b949e', fontStyle: 'italic' }}>
+                            Fetching chart data...
+                        </div>
+                    )}
+                  </div>
+                  
+                  <div className="analytics-dashboard-grid" style={{ marginTop: '20px' }}>
+                    {fundLoading ? (
+                       <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '20px', color: '#8b949e' }}>
+                         <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }}></div>
+                         Analyzing Fundamentals & Moat...
+                       </div>
+                    ) : fundData && !fundData.error ? (
+                       <>
+                         <div className="analytics-col">
+                           <div className="analytics-col-title">Internal Scoring</div>
+                           <div className="score-row"><span>Business</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.business/40)*100}%`, background: '#39d353' }}></div></div></div>
+                           <div className="score-row"><span>Moat</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.moat/20)*100}%`, background: '#58a6ff' }}></div></div></div>
+                           <div className="score-row"><span>Management</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.management/20)*100}%`, background: '#d2a8ff' }}></div></div></div>
+                           <div className="score-row"><span>Risk</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.risk/20)*100}%`, background: '#ff7b72' }}></div></div></div>
+                         </div>
+                         
+                         {fundData.porters && (
+                           <div className="analytics-col">
+                             <div className="analytics-col-title">Porter's 5 Forces</div>
+                             <div className="score-row"><span>Entrants</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.porters.entrants/20)*100}%`, background: '#8957e5' }}></div></div></div>
+                             <div className="score-row"><span>Suppliers</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.porters.suppliers/20)*100}%`, background: '#8957e5' }}></div></div></div>
+                             <div className="score-row"><span>Buyers</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.porters.buyers/20)*100}%`, background: '#8957e5' }}></div></div></div>
+                             <div className="score-row"><span>Substitutes</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.porters.substitutes/20)*100}%`, background: '#8957e5' }}></div></div></div>
+                             <div className="score-row"><span>Rivalry</span><div className="score-bar-container"><div className="score-bar-fill" style={{ width: `${(fundData.porters.rivalry/20)*100}%`, background: '#8957e5' }}></div></div></div>
+                           </div>
+                         )}
+
+                         {fundData.ratios && (
+                           <div className="analytics-col">
+                             <div className="analytics-col-title">Key Ratios</div>
+                             <div className="ratios-grid">
+                               <div className="ratio-card"><span className="ratio-label">P/E Ratio</span><span className="ratio-value">{fundData.ratios.pe ? fundData.ratios.pe.toFixed(2) : '-'}</span></div>
+                               <div className="ratio-card"><span className="ratio-label">ROE</span><span className="ratio-value">{fundData.ratios.roe ? fundData.ratios.roe.toFixed(1) + '%' : '-'}</span></div>
+                               <div className="ratio-card"><span className="ratio-label">Debt/Eq</span><span className="ratio-value">{fundData.ratios.debtToEquity ? fundData.ratios.debtToEquity.toFixed(2) : '-'}</span></div>
+                               <div className="ratio-card"><span className="ratio-label">Sales Gr.</span><span className="ratio-value">{fundData.ratios.salesGrowth ? fundData.ratios.salesGrowth.toFixed(1) + '%' : '-'}</span></div>
+                             </div>
+                           </div>
+                         )}
+                         
+                         {fundData.nlp && (
+                           <div className="nlp-insight-box">
+                             <strong>Stocky AI Insight:</strong> {fundData.nlp}
+                           </div>
+                         )}
+                         
+                         {isWlQuantAnalyzing && (
+                           <div className="nlp-insight-box" style={{ background: '#161b22', borderLeft: '4px solid #1e90ff', padding: '30px', marginTop: '15px', gridColumn: '1 / -1', borderRadius: '8px' }}>
+                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                               <div className="spinner" style={{ width: 30, height: 30, borderWidth: 3 }}></div>
+                               <div style={{ color: '#8b949e', fontStyle: 'italic', fontSize: '13px' }}>Synthesizing CFA Visual Dashboard for {selectedWlSymbol}...</div>
+                               <div style={{ width: '60%', height: '6px', background: '#30363d', borderRadius: '4px', overflow: 'hidden', marginTop: '10px' }}>
+                                 <div style={{ height: '100%', background: '#1e90ff', animation: 'quantProgress 12s cubic-bezier(0.1, 0.7, 1.0, 0.1) forwards' }}></div>
+                               </div>
+                             </div>
+                           </div>
+                         )}
+                         
+                         {!isWlQuantAnalyzing && (() => {
+                           const qr = watchlist.find(i => i.symbol === selectedWlSymbol)?.quant_report;
+                           if (!qr) return null;
+                           let parsed;
+                           try {
+                             parsed = JSON.parse(qr);
+                           } catch (e) {
+                             return (
+                               <div className="nlp-insight-box" style={{ background: '#161b22', borderLeft: '4px solid #1e90ff', padding: '15px', marginTop: '15px', gridColumn: '1 / -1' }}>
+                                 <div style={{ color: '#1e90ff', fontWeight: 'bold', marginBottom: '10px', fontSize: '14px' }}>CFA Quantitative Research Report</div>
+                                 <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', color: '#c9d1d9', lineHeight: '1.6' }}>{qr}</div>
+                               </div>
+                             );
+                           }
+                           return (
+                             <div className="nlp-insight-box" style={{ background: '#161b22', borderLeft: '4px solid #1e90ff', padding: '20px', marginTop: '15px', gridColumn: '1 / -1', borderRadius: '8px' }}>
+                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
+                                  <div style={{ color: '#1e90ff', fontWeight: 'bold', fontSize: '15px' }}>CFA Quant & Fundamental Summary</div>
+                               </div>
+                               
+                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '15px' }}>
+                                 {parsed.kpis && parsed.kpis.map((kpi, idx) => (
+                                   <div key={idx} style={{ background: '#0d1117', border: `1px solid ${kpi.color || '#30363d'}`, borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                                     <div style={{ color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 'bold', letterSpacing: '0.5px' }}>{kpi.label}</div>
+                                     <div style={{ color: kpi.color || '#fff', fontSize: '15px', fontWeight: 'bold' }}>{kpi.value}</div>
+                                   </div>
+                                 ))}
+                               </div>
+                               
+                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+                                 {parsed.doughnut_chart && parsed.doughnut_chart.length > 0 && (
+                                    <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', height: '220px', minWidth: 0 }}>
+                                      <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '5px', textAlign: 'center', fontWeight: 'bold' }}>Conviction Score</div>
+                                      <ResponsiveContainer width="99%" height={170}>
+                                        <PieChart>
+                                          <Pie data={parsed.doughnut_chart} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" stroke="none">
+                                            {parsed.doughnut_chart.map((entry, index) => (
+                                              <Cell key={`cell-${index}`} fill={entry.fill || '#fff'} />
+                                            ))}
+                                          </Pie>
+                                          <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px' }} itemStyle={{ color: '#c9d1d9' }} />
+                                        </PieChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                 )}
+
+                                 {parsed.bar_chart && parsed.bar_chart.length > 0 && (
+                                    <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', height: '220px', minWidth: 0 }}>
+                                      <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '5px', textAlign: 'center', fontWeight: 'bold' }}>Key Metrics</div>
+                                      <ResponsiveContainer width="99%" height={170}>
+                                        <BarChart data={parsed.bar_chart}>
+                                          <XAxis dataKey="name" stroke="#8b949e" fontSize={11} tickLine={false} axisLine={false} />
+                                          <Tooltip cursor={{ fill: '#161b22' }} contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', color: '#c9d1d9' }} />
+                                          <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                            {parsed.bar_chart.map((entry, index) => (
+                                              <Cell key={`cell-${index}`} fill={entry.fill || '#58a6ff'} />
+                                            ))}
+                                          </Bar>
+                                        </BarChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                 )}
+                               </div>
+                               
+                               <div style={{ fontSize: '13px', color: '#c9d1d9', lineHeight: '1.6', background: '#0d1117', padding: '18px', borderRadius: '8px', border: '1px solid #30363d' }}>
+                                 {parsed.detailed_analysis || parsed.summary}
+                               </div>
+                             </div>
+                           );
+                         })()}
+                       </>
+                    ) : fundData && fundData.error ? (
+                        <div style={{ color: '#f85149', fontSize: 13, padding: '20px', gridColumn: '1 / -1' }}>{fundData.error}</div>
+                    ) : null}
+                  </div>
+                </>
+             ) : (
+                <div style={{ color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                   Select a stock from your watchlist to view analysis
+                </div>
+             )}
+          </section>
+
+          <section className="right-panel" style={{ display: 'flex', flexDirection: 'column', gap: '20px', minHeight: 0, overflowY: 'auto' }}>
+            <div style={{ position: 'relative', flexShrink: 0, width: '100%' }}>
+              <input 
+                type="text" 
+                placeholder="Search to add..." 
+                style={{ background: '#0d1117', border: '1px solid #30363d', padding: '10px 20px', color: '#fff', borderRadius: '24px', width: '100%', boxSizing: 'border-box' }}
+                value={wlSearch}
+                onChange={(e) => handleWlSearchChange(e.target.value)}
+                onKeyDown={handleWlAdd}
+              />
+              {wlSuggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                  {wlSuggestions.map(sym => (
+                    <div 
+                      key={sym} 
+                      style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #30363d', color: '#c9d1d9' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#21262d'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onClick={() => handleWlSuggestionClick(sym)}
+                    >
+                      {sym}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '12px', flexShrink: 0 }}>
+               {watchlist.map(item => (
+                  <div key={item.symbol} style={{ position: 'relative' }}>
+                     <button 
+                       style={{ 
+                         width: '100%', padding: '16px', background: selectedWlSymbol === item.symbol ? '#238636' : '#161b22', 
+                         color: '#fff', border: '1px solid #30363d', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s'
+                       }}
+                       onClick={() => handleWlSelect(item.symbol)}
+                     >
+                        {item.symbol}
+                     </button>
+                     <button 
+                       onClick={() => handleWlRemove(item.symbol)}
+                       style={{ position: 'absolute', top: -8, right: -8, background: '#ff5f56', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 'bold' }}
+                     >×</button>
+                  </div>
+               ))}
+               {watchlist.length === 0 && <div style={{ color: '#888', gridColumn: '1 / -1' }}>Your watchlist is empty. Search to add or auto-add!</div>}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: 'auto', flexShrink: 0 }}>
+               <button className="white-btn" style={{ flex: 1, padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#21262d', color: '#fff' }} onClick={handleWlAutoAdd} disabled={isWlAutoAdding}>
+                  {isWlAutoAdding ? 'Scanning Nifty 500...' : 'Auto add to watchlist'}
+               </button>
+               <button 
+                  className="white-btn" 
+                  style={{ flex: 1, padding: '12px', background: '#1e90ff', border: 'none', color: '#fff' }} 
+                  disabled={!selectedWlSymbol || isWlQuantAnalyzing}
+                  onClick={handleWlQuantAnalyze}
+               >
+                  {isWlQuantAnalyzing ? 'Running CFA Analysis...' : 'Run CFA Quant Analysis'}
+               </button>
+            </div>
+          </section>
+
+          <button 
+            onClick={() => setIsChatPopupOpen(!isChatPopupOpen)}
+            style={{
+              position: 'fixed', bottom: '20px', right: '20px', zIndex: 100,
+              width: '50px', height: '50px', borderRadius: '25px',
+              background: '#238636', color: '#fff', border: 'none',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px'
+            }}
+            title="Ask Stocky AI"
+          >
+            💬
+          </button>
+
+          {isChatPopupOpen && (
+            <div className="chat-section" style={{ 
+              position: 'fixed', bottom: '80px', right: '20px', zIndex: 100,
+              width: '350px', height: '500px', backgroundColor: '#0d1117',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.8)', display: 'flex', flexDirection: 'column'
+            }}>
+              <div className="chat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #30363d', background: '#161b22' }}>
+                <h3 style={{ margin: 0, fontSize: '14px', textTransform: 'uppercase', color: '#8b949e', letterSpacing: '1px' }}>Stocky AI</h3>
+                <button onClick={() => setIsChatPopupOpen(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}>×</button>
+              </div>
+              
+              <div className="chat-history" style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                 {chatHistory.map((msg, i) => (
+                   <div key={i} className={`chat-msg ${msg.role}`} dangerouslySetInnerHTML={{ __html: msg.text }}></div>
+                 ))}
+                 {isChatLoading && <div className="chat-msg bot">Thinking...</div>}
+                 <div ref={chatEndRef} />
+              </div>
+
+              <div className="chat-input-box" style={{ padding: '16px', borderTop: '1px solid #30363d' }}>
+                <input 
+                  type="text" 
+                  placeholder="Ask Stocky anything..." 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendChat()}
+                />
+                <button onClick={sendChat} className="send-btn">↑</button>
+              </div>
+            </div>
+          )}
+        </main>
+      )}
+
+      {activeAppTab === 'Analytics' && (
+        <main style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '30px', width: '100%', boxSizing: 'border-box', overflowY: 'auto', flex: 1 }}>
+           <h2 style={{ color: '#fff', margin: 0, borderBottom: '1px solid #30363d', paddingBottom: '10px' }}>Portfolio Analytics (CFA Framework)</h2>
+           
+           {/* KPI Row (3 columns) */}
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+              {/* Aggregate Portfolio Quality */}
+              <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', textAlign: 'center', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                 <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '1px', fontWeight: 'bold' }}>Aggregate Portfolio Quality</div>
+                 <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#2ea043' }}>
+                    {(() => {
+                        const holdings = portfolio.holdings || [];
+                        if (!holdings.length) return 0;
+                        let total = 0, count = 0;
+                        holdings.forEach(h => {
+                            const fd = holdingFundData[h.instrument];
+                            if (fd && fd.technical_score) { total += fd.technical_score; count++; }
+                        });
+                        return count ? Math.round(total / count) : 0;
+                    })()} <span style={{fontSize: '24px', color: '#8b949e'}}>/ 100</span>
+                 </div>
+                 <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '10px' }}>EQUAL-WEIGHTED FUNDAMENTAL ASSESSMENT</div>
+              </div>
+
+              {/* Herfindahl-Hirschman Index (HHI) */}
+              <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', textAlign: 'center', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                 <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '1px', fontWeight: 'bold' }}>Concentration Risk (HHI)</div>
+                 {(() => {
+                        const holdings = portfolio.holdings || [];
+                        const totalEq = portfolio.stats?.current || 1;
+                        let hhi = 0;
+                        holdings.forEach(h => {
+                            const val = (h.qty * h.ltp);
+                            const w = (val / totalEq) * 100;
+                            hhi += (w * w);
+                        });
+                        
+                        let hhiColor = '#3fb950'; // Green
+                        if (hhi > 2500) hhiColor = '#f85149'; // Red
+                        else if (hhi >= 1500) hhiColor = '#d29922'; // Orange
+                        
+                        return (
+                            <>
+                                <div style={{ fontSize: '48px', fontWeight: 'bold', color: hhiColor }}>
+                                   {fmt(hhi, 0)}
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '10px' }}>
+                                   &lt; 1500: DIVERSIFIED &nbsp;|&nbsp; &gt; 2500: HIGHLY CONCENTRATED
+                                </div>
+                            </>
+                        );
+                 })()}
+              </div>
+
+              {/* Active Share & Capital Efficiency Alerts */}
+              <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                 <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '15px', letterSpacing: '1px', fontWeight: 'bold' }}>Active Share Alerts</div>
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', flex: 1 }}>
+                     {(() => {
+                         const holdings = portfolio.holdings || [];
+                         if (!holdings.length) return <div style={{ color: '#8b949e', fontSize: '12px' }}>Insufficient portfolio data.</div>;
+                         
+                         let alerts = [];
+                         const totalEq = portfolio.stats?.current || 1;
+                         
+                         holdings.forEach(h => {
+                             const fd = holdingFundData[h.instrument];
+                             if (!fd || !fd.technical_score) return;
+                             
+                             const val = h.qty * h.ltp;
+                             const weight = (val / totalEq) * 100;
+                             
+                             if (weight > 10 && fd.technical_score < 40) {
+                                 alerts.push(
+                                    <div key={`trap-${h.instrument}`} style={{ padding: '10px', background: 'rgba(255, 123, 114, 0.05)', borderLeft: '3px solid #ff7b72', color: '#ff7b72', fontSize: '11px' }}>
+                                       <strong>⚠️ Value Trap:</strong> {h.instrument} is overweight ({weight.toFixed(1)}%) with low fundamentals ({fd.technical_score}/100).
+                                    </div>
+                                 );
+                             } else if (weight < 3 && fd.technical_score > 75) {
+                                 alerts.push(
+                                    <div key={`win-${h.instrument}`} style={{ padding: '10px', background: 'rgba(46, 160, 67, 0.05)', borderLeft: '3px solid #2ea043', color: '#2ea043', fontSize: '11px' }}>
+                                       <strong>⭐ High Alpha:</strong> {h.instrument} has robust fundamentals ({fd.technical_score}/100) but is underweight ({weight.toFixed(1)}%).
+                                    </div>
+                                 );
+                             }
+                         });
+                         
+                         if (alerts.length === 0) return <div style={{ color: '#3fb950', fontSize: '11px', padding: '10px', background: 'rgba(46, 160, 67, 0.05)', borderLeft: '3px solid #3fb950' }}>✅ Optimal Allocation: No acute misallocation risks detected.</div>;
+                         return alerts;
+                     })()}
+                 </div>
+              </div>
+           </div>
+
+           {/* Charts Row (2 columns) */}
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+              {/* Strategic Asset Allocation Donut */}
+              <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', height: '350px', display: 'flex', flexDirection: 'column', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                 <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '1px', textAlign: 'center', fontWeight: 'bold' }}>Strategic Asset Allocation</div>
+                 <div style={{ flex: 1, minHeight: 0 }}>
+                    <ResponsiveContainer width="99%" height="100%">
+                      <PieChart>
+                         <defs>
+                            <linearGradient id="colorEq" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="5%" stopColor="#58a6ff" stopOpacity={1}/>
+                               <stop offset="95%" stopColor="#1f6feb" stopOpacity={1}/>
+                            </linearGradient>
+                            <linearGradient id="colorMf" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="5%" stopColor="#d2a8ff" stopOpacity={1}/>
+                               <stop offset="95%" stopColor="#8957e5" stopOpacity={1}/>
+                            </linearGradient>
+                            <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="5%" stopColor="#3fb950" stopOpacity={1}/>
+                               <stop offset="95%" stopColor="#2ea043" stopOpacity={1}/>
+                            </linearGradient>
+                         </defs>
+                         <Pie 
+                           data={(() => {
+                               const holdings = portfolio.holdings || [];
+                               let eqTotal = 0, mfTotal = 0;
+                               holdings.forEach(h => {
+                                   if (h.asset_type === "EQUITY") eqTotal += (h.qty * h.ltp);
+                                   else if (h.asset_type === "MUTUAL FUND") mfTotal += (h.qty * h.ltp);
+                                   else eqTotal += (h.qty * h.ltp); // fallback
+                               });
+                               return [
+                                 { name: 'Equities', value: eqTotal, fill: 'url(#colorEq)' },
+                                 { name: 'Mutual Funds', value: mfTotal, fill: 'url(#colorMf)' },
+                                 { name: 'Cash Equivalents', value: portfolio.stats?.balance || 0, fill: 'url(#colorCash)' }
+                               ].filter(d => d.value > 0);
+                           })()} 
+                           cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="#0d1117" strokeWidth={2}
+                         >
+                         </Pie>
+                         <Tooltip 
+                            cursor={{ fill: 'rgba(255,255,255,0.02)' }} 
+                            contentStyle={{ background: 'rgba(13, 17, 23, 0.9)', backdropFilter: 'blur(5px)', border: '1px solid #30363d', borderRadius: '6px', color: '#c9d1d9', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', fontSize: '12px' }} 
+                            itemStyle={{ color: '#fff', fontWeight: 'bold' }}
+                            formatter={(val) => `₹${fmt(val)}`} 
+                         />
+                      </PieChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+
+              {/* Top 5 Holdings Bar Chart */}
+              <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', height: '350px', display: 'flex', flexDirection: 'column', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                 <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '1px', textAlign: 'center', fontWeight: 'bold' }}>Top 5 Capital Allocations (%)</div>
+                 <div style={{ flex: 1, minHeight: 0 }}>
+                    <ResponsiveContainer width="99%" height="100%">
+                      <BarChart data={(() => {
+                          const holdings = portfolio.holdings || [];
+                          const totalEq = portfolio.stats?.current || 1;
+                          let top = holdings.map(h => ({
+                              name: h.instrument,
+                              value: parseFloat(((h.qty * h.ltp) / totalEq * 100).toFixed(2)),
+                          }));
+                          top.sort((a, b) => b.value - a.value);
+                          return top.slice(0, 5);
+                      })()} layout="vertical" margin={{ top: 15, right: 30, left: 50, bottom: 5 }}>
+                        <defs>
+                            <linearGradient id="barColor" x1="0" y1="0" x2="1" y2="0">
+                               <stop offset="0%" stopColor="#1f6feb" stopOpacity={0.8}/>
+                               <stop offset="100%" stopColor="#58a6ff" stopOpacity={1}/>
+                            </linearGradient>
+                        </defs>
+                        <XAxis type="number" stroke="#8b949e" fontSize={10} tickLine={false} axisLine={{ stroke: '#30363d' }} />
+                        <YAxis dataKey="name" type="category" stroke="#c9d1d9" fontSize={11} tickLine={false} axisLine={{ stroke: '#30363d' }} />
+                        <Tooltip 
+                            cursor={{ fill: 'rgba(255,255,255,0.02)' }} 
+                            contentStyle={{ background: 'rgba(13, 17, 23, 0.9)', backdropFilter: 'blur(5px)', border: '1px solid #30363d', borderRadius: '6px', color: '#c9d1d9', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', fontSize: '12px' }} 
+                            itemStyle={{ color: '#58a6ff', fontWeight: 'bold' }}
+                            formatter={(val) => `${val}%`} 
+                        />
+                        <Bar dataKey="value" fill="url(#barColor)" radius={[0, 4, 4, 0]} barSize={20} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+           </div>
+
+           {/* AI Portfolio Optimization Panel */}
+           <div style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                 <div style={{ color: '#c9d1d9', fontSize: '16px', fontWeight: 'bold' }}>🧠 Generative AI Portfolio Optimization</div>
+                 <button 
+                    onClick={handlePortfolioOptimization}
+                    disabled={isOptGenerating}
+                    style={{ background: '#1f6feb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: isOptGenerating ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '12px', opacity: isOptGenerating ? 0.7 : 1 }}
+                 >
+                    {isOptGenerating ? 'Generating CFA Report...' : 'Run Optimization'}
+                 </button>
+              </div>
+
+              {isOptGenerating && (
+                 <div style={{ marginBottom: '20px' }}>
+                    <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '8px', textAlign: 'center' }}>CFA AI Engine is actively processing your portfolio... (Takes ~10 seconds)</div>
+                    <div style={{ width: '100%', height: '6px', background: '#30363d', borderRadius: '3px', overflow: 'hidden' }}>
+                       <div style={{ width: '50%', height: '100%', background: '#58a6ff', animation: 'progress-anim 2s infinite ease-in-out' }}></div>
+                    </div>
+                    <style>{`
+                       @keyframes progress-anim {
+                          0% { transform: translateX(-100%); width: 50%; }
+                          100% { transform: translateX(200%); width: 50%; }
+                       }
+                    `}</style>
+                 </div>
+              )}
+
+              {optReport && !isOptGenerating && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ color: '#8b949e', fontSize: '14px', lineHeight: '1.6' }}>
+                          <ReactMarkdown>{optReport.detailed_analysis}</ReactMarkdown>
+                      </div>
+                      
+                      {/* KPIs */}
+                      <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px' }}>
+                          {(optReport.kpis || []).map((k, i) => (
+                              <div key={i} style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', minWidth: '150px', textAlign: 'center' }}>
+                                  <div style={{ color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>{k.label}</div>
+                                  <div style={{ color: k.color, fontSize: '20px', fontWeight: 'bold' }}>{k.value}</div>
+                              </div>
+                          ))}
+                      </div>
+
+                      {/* Charts */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                          <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', height: '250px', display: 'flex', flexDirection: 'column' }}>
+                             <div style={{ color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center', marginBottom: '10px', fontWeight: 'bold' }}>Risk Profile</div>
+                             <div style={{ flex: 1, minHeight: 0 }}>
+                                <ResponsiveContainer width="99%" height="100%">
+                                  <PieChart>
+                                    <Pie data={optReport.doughnut_chart || []} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" stroke="#161b22" strokeWidth={2}>
+                                      {(optReport.doughnut_chart || []).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ background: 'rgba(13, 17, 23, 0.9)', backdropFilter: 'blur(5px)', border: '1px solid #30363d', borderRadius: '6px', color: '#c9d1d9' }} itemStyle={{ color: '#fff', fontWeight: 'bold' }} formatter={(val) => `${val}%`} />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                             </div>
+                          </div>
+                          
+                          <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', height: '250px', display: 'flex', flexDirection: 'column' }}>
+                             <div style={{ color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center', marginBottom: '10px', fontWeight: 'bold' }}>Suggested Rebalancing Targets (%)</div>
+                             <div style={{ flex: 1, minHeight: 0 }}>
+                                <ResponsiveContainer width="99%" height="100%">
+                                  <BarChart data={optReport.bar_chart || []} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
+                                    <XAxis type="number" stroke="#8b949e" fontSize={10} tickLine={false} axisLine={{ stroke: '#30363d' }} />
+                                    <YAxis dataKey="name" type="category" stroke="#c9d1d9" fontSize={10} tickLine={false} axisLine={{ stroke: '#30363d' }} />
+                                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.02)' }} contentStyle={{ background: 'rgba(13, 17, 23, 0.9)', backdropFilter: 'blur(5px)', border: '1px solid #30363d', borderRadius: '6px', color: '#c9d1d9' }} itemStyle={{ color: '#58a6ff', fontWeight: 'bold' }} formatter={(val) => `${val}%`} />
+                                    <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={15}>
+                                      {(optReport.bar_chart || []).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                                    </Bar>
+                                  </BarChart>
+                                </ResponsiveContainer>
+                             </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
+           </div>
+
+        </main>
+      )}
     </div>
   );
 }

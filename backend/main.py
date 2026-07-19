@@ -65,9 +65,16 @@ def _read_token_file(today_str):
                 return f.read().strip()
     return None
 
+class SessionRenewingException(Exception):
+    pass
+
+login_process = None
+
 def _run_selenium_login():
-    print("[Token Engine] Fetching fresh token via Selenium for today...")
-    subprocess.run(["python", "selenium_login.py"], cwd=BASE_DIR, check=False)
+    global login_process
+    if login_process is None or login_process.poll() is not None:
+        print("[Token Engine] Spawning fresh token fetcher via Headless Selenium in background...")
+        login_process = subprocess.Popen(["python", "selenium_login.py"], cwd=BASE_DIR)
 
 def get_kite():
     with token_lock:
@@ -78,10 +85,10 @@ def get_kite():
         # New day — check disk first
         token = _read_token_file(today)
         
-        # If token.txt is stale/missing, run Selenium synchronously
+        # If token.txt is stale/missing, run Selenium asynchronously
         if not token:
             _run_selenium_login()
-            token = _read_token_file(today)
+            raise SessionRenewingException("Token expired. Fetching fresh token in background...")
             
         # If it STILL failed (Selenium crash), fallback to emergency token
         if not token:
@@ -103,6 +110,8 @@ def get_holdings():
     try:
         kite = get_kite()
         return jsonify({"status": "success", "data": kite.holdings()})
+    except SessionRenewingException as e:
+        return jsonify({"status": "error", "detail": str(e)}), 503
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
 
@@ -111,17 +120,27 @@ import yfinance as yf
 @app.route("/api/chart/<symbol>", methods=["GET"])
 def get_chart(symbol):
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1y", interval="1wk", timeout=15)
+        yf_sym = symbol if symbol.endswith('.NS') or symbol.endswith('.BO') else f"{symbol}.NS"
+        import requests
+        from datetime import datetime
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_sym}?range=1y&interval=1wk"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json()
+        result = data['chart']['result'][0]
+        timestamps = result['timestamp']
+        quote = result['indicators']['quote'][0]
+        
         chart_data = []
-        for index, row in df.iterrows():
-            chart_data.append({
-                "time": index.strftime("%Y-%m-%d"),
-                "open": round(row['Open'], 2),
-                "high": round(row['High'], 2),
-                "low": round(row['Low'], 2),
-                "close": round(row['Close'], 2)
-            })
+        for i in range(len(timestamps)):
+            if quote['open'][i] is not None:
+                chart_data.append({
+                    "time": datetime.fromtimestamp(timestamps[i]).strftime("%Y-%m-%d"),
+                    "open": round(quote['open'][i], 2),
+                    "high": round(quote['high'][i], 2),
+                    "low": round(quote['low'][i], 2),
+                    "close": round(quote['close'][i], 2)
+                })
         return jsonify({"status": "success", "data": chart_data})
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
@@ -133,6 +152,7 @@ from datetime import datetime
 
 QUEUE_DB_PATH = os.path.join(BASE_DIR, 'trade_queue.db')
 HISTORY_DB_PATH = os.path.join(BASE_DIR, 'trade_history.db')
+WATCHLIST_DB_PATH = os.path.join(BASE_DIR, 'watchlist.db')
 
 def init_queue_db():
     conn = sqlite3.connect(QUEUE_DB_PATH)
@@ -165,6 +185,28 @@ def init_queue_db():
     conn.commit()
     conn.close()
 
+def init_watchlist_db():
+    conn = sqlite3.connect(WATCHLIST_DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS watchlist (
+            symbol TEXT PRIMARY KEY,
+            added_at TEXT NOT NULL,
+            quant_report TEXT,
+            regression_points TEXT
+        )
+    ''')
+    try:
+        c.execute("ALTER TABLE watchlist ADD COLUMN quant_report TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE watchlist ADD COLUMN regression_points TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+    conn.close()
+
 def init_history_db():
     conn = sqlite3.connect(HISTORY_DB_PATH)
     c = conn.cursor()
@@ -190,6 +232,7 @@ def init_history_db():
 # Initialize on boot
 init_queue_db()
 init_history_db()
+init_watchlist_db()
 
 import time
 import threading
@@ -478,6 +521,13 @@ def place_order():
         
         conn = sqlite3.connect(QUEUE_DB_PATH)
         c = conn.cursor()
+        
+        # Prevent duplicates if multiple scans are triggered concurrently
+        c.execute("SELECT id FROM pending_trades WHERE symbol = ? AND status = 'PENDING'", (req.get("tradingsymbol"),))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"status": "success", "message": "Duplicate skipped", "trade_id": "SKIPPED"})
+            
         c.execute('''
             INSERT INTO pending_trades 
             (id, symbol, setup_type, technical_score, confidence, rationale, entry_zone, stop_loss, target, rr_ratio, 
@@ -662,6 +712,149 @@ def rescan_holdings():
         return jsonify({"status": "success", "message": "Holdings cache cleared."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# --- WATCHLIST ROUTES ---
+
+@app.route("/api/watchlist", methods=["GET"])
+def get_watchlist():
+    try:
+        conn = sqlite3.connect(WATCHLIST_DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT symbol, quant_report, regression_points FROM watchlist ORDER BY added_at DESC")
+        rows = c.fetchall()
+        conn.close()
+        
+        data = []
+        for r in rows:
+            data.append({
+                "symbol": r[0],
+                "quant_report": r[1],
+                "regression_points": r[2]
+            })
+            
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/watchlist/<symbol>", methods=["POST"])
+def add_to_watchlist(symbol):
+    try:
+        conn = sqlite3.connect(WATCHLIST_DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO watchlist (symbol, added_at) VALUES (?, ?)", (symbol.upper(), datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/watchlist/<symbol>", methods=["DELETE"])
+def remove_from_watchlist(symbol):
+    try:
+        conn = sqlite3.connect(WATCHLIST_DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol.upper(),))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/watchlist/auto-add", methods=["POST"])
+def auto_add_watchlist():
+    try:
+        import pandas as pd
+        import yfinance as yf
+        import time
+        import requests
+        import io
+        
+        # 1. Fetch Nifty 500 symbols with proper User-Agent to prevent NSE blocking
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get('https://archives.nseindia.com/content/indices/ind_nifty500list.csv', headers=headers, timeout=10)
+            df = pd.read_csv(io.StringIO(response.text))
+            symbols = df['Symbol'].tolist()
+        except Exception as e:
+            print(f"Failed to fetch from NSE: {e}. Falling back to NIFTY 50...")
+            symbols = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "ITC", "SBIN", "BHARTIARTL", "BAJFINANCE", "LT", "HINDUNILVR", "AXISBANK", "KOTAKBANK", "MARUTI", "SUNPHARMA", "TATAMOTORS", "M&M", "NTPC", "POWERGRID", "ASIANPAINT", "TATASTEEL", "TITAN", "COALINDIA", "BAJAJFINSV"]
+            
+        yf_symbols = [f"{sym}.NS" for sym in symbols]
+        
+        # 2. Get existing watchlist to exclude
+        conn = sqlite3.connect(WATCHLIST_DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT symbol FROM watchlist")
+        existing = {r[0] for r in c.fetchall()}
+        
+        # 3. Batch download 6mo data slowly to avoid rate limits
+        returns = {}
+        chunk_size = 50
+        for i in range(0, len(yf_symbols), chunk_size):
+            chunk = yf_symbols[i:i + chunk_size]
+            data = yf.download(chunk, period="6mo", progress=False)['Close']
+            
+            # 4. Calculate 6-month returns
+            for sym in chunk:
+                if sym in data.columns:
+                    col = data[sym].dropna()
+                    if len(col) > 0:
+                        first_price = col.iloc[0]
+                        last_price = col.iloc[-1]
+                        if first_price > 0:
+                            pct_return = (last_price - first_price) / first_price
+                            clean_sym = sym.replace('.NS', '')
+                            if clean_sym not in existing and pct_return > 0.05:
+                                returns[clean_sym] = pct_return
+            time.sleep(2) # Process slowly to avoid Yahoo Finance rate limits
+            
+        # 5. Sort and pick top 3
+        sorted_returns = sorted(returns.items(), key=lambda x: x[1], reverse=True)
+        top_3 = [x[0] for x in sorted_returns[:3]]
+        
+        # 6. Insert into DB
+        for sym in top_3:
+            c.execute("INSERT OR IGNORE INTO watchlist (symbol, added_at) VALUES (?, ?)", (sym, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"status": "success", "added": top_3})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/watchlist/quant-analyze/<symbol>", methods=["POST"])
+def quant_analyze_watchlist(symbol):
+    try:
+        # Spawn the quant_analyzer as an independent background process
+        q_log = open("quant_analyzer.log", "a")
+        subprocess.Popen([sys.executable, "quant_analyzer.py", symbol], 
+                         stdout=q_log, stderr=q_log)
+        return jsonify({"status": "success", "message": f"Quant Analysis started for {symbol}"})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/search", methods=["GET"])
+def search_symbols():
+    try:
+        query = request.args.get("q", "").upper()
+        if not query:
+            return jsonify({"status": "success", "results": []})
+            
+        import pandas as pd
+        import requests
+        import io
+        
+        # Simple caching mechanism in memory to avoid fetching CSV on every keystroke
+        if not hasattr(app, "nifty500_cache"):
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get('https://archives.nseindia.com/content/indices/ind_nifty500list.csv', headers=headers, timeout=10)
+            df = pd.read_csv(io.StringIO(response.text))
+            app.nifty500_cache = df['Symbol'].tolist()
+            
+        matches = sorted(list(set([sym for sym in app.nifty500_cache if query in sym])))[:10] # Return top 10 unique matches
+        return jsonify({"status": "success", "results": matches})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
 
 @app.route("/api/queue", methods=["GET"])
 def get_queue():
@@ -851,113 +1044,21 @@ def reject_trades():
 
 import re
 
-@app.route('/api/chat', methods=['POST'])
-def chat():
+@app.route('/api/stocky', methods=['POST'])
+def stocky_chat():
+    from stocky_engine import StockyEngine
     data = request.json
     msg = data.get("message", "").strip()
+    auth = request.headers.get("Authorization", "")
     
-    if not os.environ.get("GEMINI_API_KEY"):
-        return jsonify({"reply": "Gemini API key is missing. Please add it to secrets.env and restart the backend."})
-        
-    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
-    
-    intent_prompt = f"""You are an intent classifier. User message: "{msg}"
-If the user wants you to review, analyze, or check a stock, reply EXACTLY with:
-[ANALYZE: SYMBOL] (where SYMBOL is the stock ticker, e.g. INFY, ITC)
-If the user wants to buy or execute a trade, reply EXACTLY with:
-[BUY: SYMBOL, QTY, PRICE] (extract these numbers)
-If the user asks about their portfolio, holdings, or what stocks they own, reply EXACTLY with:
-[HOLDINGS]
-If it is just a conversational question about the market or anything else, reply EXACTLY with:
-[CHAT]"""
-
+    engine = StockyEngine()
     try:
-        intent_response = client.models.generate_content(model="gemini-2.5-flash", contents=intent_prompt).text.strip()
+        res = engine.process_query(msg, auth)
+        if isinstance(res, tuple):
+            return jsonify(res[0]), res[1]
+        return jsonify(res)
     except Exception as e:
-        return jsonify({"reply": f"Gemini API Error: {str(e)}"})
-        
-    if intent_response.startswith("[ANALYZE:"):
-        match = re.search(r"\[ANALYZE:\s*([A-Za-z0-9]+)\]", intent_response)
-        if match:
-            symbol = match.group(1).upper()
-            try:
-                fetcher = DataFetcher()
-                market_data = fetcher.fetch_historical_data(symbol)
-                df_daily = market_data["daily"]
-                df_weekly = market_data["weekly"]
-                
-                if df_daily.empty:
-                    return jsonify({"reply": f"Sorry, I could not pull live market data for {symbol}."})
-                    
-                last_price = df_daily['Close'].iloc[-1]
-                engine = ScoringEngine()
-                res = engine.evaluate(symbol, last_price, df_daily, df_weekly)
-                
-                rag_prompt = f"""You are Finsistant, a strict AI trading assistant. 
-The user asked: "{msg}"
-
-Here is the exact mathematical data from the TechSight Engine for {symbol}:
-LTP: {last_price:.2f}
-Technical Score: {res.get('technical_score')} / 100
-Confidence: {res.get('confidence')}%
-Entry Zone: {res.get('entry_zone')}
-Target: {res.get('target')}
-Stop Loss: {res.get('stop_loss')}
-R:R Ratio: 1:{res.get('rr_ratio', 0):.2f}
-Market Context: {res.get('market_context')}
-Key Risks: {res.get('key_risks')}
-
-Synthesize this data into a conversational, professional, and concise response. DO NOT invent any numbers. Rely strictly on the rigid mathematical engine data above. 
-CRITICAL: You MUST declare every factor and score (Technical Score, Confidence, R:R, Key Risks) upfront at the very beginning of your response in a clear bulleted or bolded list before writing your summary."""
-                
-                final_response = client.models.generate_content(model="gemini-2.5-flash", contents=rag_prompt).text
-                return jsonify({"reply": final_response})
-            except Exception as e:
-                return jsonify({"reply": f"Engine Error analyzing {symbol}: {str(e)}"})
-                
-    elif intent_response.startswith("[HOLDINGS]"):
-        try:
-            kite = get_kite()
-            holdings = kite.holdings()
-            holdings_summary = []
-            for h in holdings:
-                holdings_summary.append(f"- {h['tradingsymbol']}: {h['quantity']} shares (Avg: ₹{h['average_price']}, LTP: ₹{h['last_price']}, P&L: ₹{h['pnl']})")
-            h_text = "\n".join(holdings_summary) if holdings_summary else "No holdings found."
-            
-            holdings_prompt = f"""You are Finsistant, a strict AI trading assistant.
-The user asked about their holdings: "{msg}"
-
-Here is their exact live portfolio from Zerodha Kite:
-{h_text}
-
-Provide a concise, professional summary of their holdings."""
-            final_response = client.models.generate_content(model="gemini-2.5-flash", contents=holdings_prompt).text
-            return jsonify({"reply": final_response})
-        except Exception as e:
-            return jsonify({"reply": f"Error fetching holdings from Zerodha: {str(e)}"})
-
-    elif intent_response.startswith("[BUY:"):
-        auth = request.headers.get("Authorization", "")
-        pwd = auth.split(" ")[1] if auth.startswith("Bearer ") else data.get("password", "")
-        if pwd != EXECUTION_PASSWORD:
-            return jsonify({"reply": "Unauthorized. Execution requires your password.", "requires_auth": True}), 401
-        match = re.search(r"\[BUY:\s*([A-Za-z0-9]+),\s*(\d+),\s*([0-9.]+)\]", intent_response)
-        if match:
-            symbol = match.group(1).upper()
-            qty = match.group(2)
-            price = match.group(3)
-            reply = f"I have manually queued {qty} shares of {symbol} at ₹{price} to the execution bridge. This will be pushed to Kite immediately."
-            return jsonify({"reply": reply})
-            
-    # Conversational Fallback
-    fallback_prompt = f"""You are Finsistant, an extremely strict, mathematical AI trading assistant built by Parth. 
-Respond to the user: "{msg}"
-Keep it highly professional, short, and emphasize that you only execute trades when the mathematical odds are asymmetric."""
-    try:
-        final_response = client.models.generate_content(model="gemini-2.5-flash", contents=fallback_prompt).text
-        return jsonify({"reply": final_response})
-    except Exception as e:
-        return jsonify({"reply": f"Gemini API Error: {str(e)}"})
+        return jsonify({"reply": f"Stocky Engine Error: {str(e)}"}), 500
 
 @app.route("/api/history", methods=["GET"])
 def get_history():
@@ -1169,6 +1270,8 @@ def get_portfolio():
             },
             "holdings": holdings
         })
+    except SessionRenewingException as e:
+        return jsonify({"status": "error", "detail": str(e)}), 503
     except Exception as e:
         # Fallback dummy data if Kite fails (e.g. offline)
         return jsonify({
@@ -1186,6 +1289,46 @@ def get_portfolio():
             ]
         })
 
+@app.route("/api/portfolio/optimize", methods=["POST"])
+def optimize_portfolio_api():
+    try:
+        portfolio_data = request.json
+        if not portfolio_data:
+            return jsonify({"status": "error", "detail": "No portfolio data provided"}), 400
+            
+        with open("temp_portfolio.json", "w") as f:
+            json.dump(portfolio_data, f)
+            
+        # Spawn the portfolio_optimizer as an independent background process
+        opt_log = open("portfolio_optimizer.log", "a")
+        import subprocess
+        subprocess.Popen([sys.executable, "portfolio_optimizer.py", "temp_portfolio.json"], 
+                         stdout=opt_log, stderr=opt_log)
+        return jsonify({"status": "success", "message": "Portfolio Optimization started"})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+@app.route("/api/portfolio/optimization_status", methods=["GET"])
+def optimization_status():
+    try:
+        if os.path.exists("portfolio_ai_report.json"):
+            # Check if it was modified recently (e.g. within last 1 hour)
+            mtime = os.path.getmtime("portfolio_ai_report.json")
+            import time
+            if time.time() - mtime < 3600:
+                with open("portfolio_ai_report.json", "r") as f:
+                    try:
+                        report_data = json.load(f)
+                        return jsonify({"status": "success", "report": report_data})
+                    except Exception as parse_e:
+                        return jsonify({"status": "pending", "message": "Writing..."})
+            else:
+                return jsonify({"status": "pending", "message": "Report is outdated"})
+        else:
+            return jsonify({"status": "pending", "message": "Report generating..."})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
 @app.route("/api/simulate/<trade_id>", methods=["POST"])
 def simulate_trade_api(trade_id):
     try:
@@ -1200,6 +1343,8 @@ def simulate_trade_api(trade_id):
 if __name__ == "__main__":
     print("Initializing databases...", flush=True)
     init_queue_db()
+    init_history_db()
+    init_watchlist_db()
     
     print("Starting Flask server...", flush=True)
     app.run(host="0.0.0.0", port=8000)
