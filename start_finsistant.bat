@@ -3,23 +3,21 @@ echo =========================================
 echo       Finsistant AI Startup Script
 echo =========================================
 
-:: Get the directory of this batch file
 cd /d "%~dp0"
 
-echo [1/2] Starting Python Backend Server...
-:: start /min opens it in a minimized background window
-start /min "Finsistant Backend" python backend/main.py
+echo [1/3] Starting Python Backend Server (Waitress + Ngrok)...
+cd backend
+start "Finsistant Backend" start_backend.bat
+cd ..
 
-echo [2/2] Starting React Frontend...
+echo [2/3] Starting React Frontend...
 cd frontend
 start /min "Finsistant Frontend" npm run dev
 cd ..
 
+echo [3/3] Starting TechSight Orchestrator...
+start "TechSight Orchestrator" "C:\Users\parth\AppData\Local\Programs\Python\Python313\python.exe" techsight_orchestrator.py
+
 echo.
-echo All services have been launched in the background!
-echo.
-echo Dashboard: http://localhost:5173
-echo API:       http://127.0.0.1:8000
-echo.
-echo To stop the servers, you can close the minimized command prompt windows.
+echo All services have been launched!
 pause

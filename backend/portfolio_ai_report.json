@@ -1,0 +1,49 @@
+{
+  "detailed_analysis": "The current portfolio displays a pronounced tilt towards cyclical and value-oriented equities, with approximately 70% of the capital concentrated in sectors such as banking, infrastructure, and commodities. While this strategy can yield significant returns during specific market phases, it inherently heightens the portfolio's overall market and sector-specific risk exposure. Notably, positions in BANKBETA and LT show considerable individual concentration, suggesting a need for better diversification at the stock level, despite the presence of multiple instruments. Capital efficiency could be optimized by reevaluating and potentially reallocating from highly correlated or underperforming assets to improve the portfolio's risk-adjusted return profile. The existing cash balance, inclusive of liquid-equivalent holdings, provides a modest liquidity buffer, but the overall equity exposure remains elevated, contributing to an aggressive risk posture.\n\nTo mitigate the identified concentrations and align the portfolio with a more balanced risk-return profile, a strategic rebalancing is strongly advised. It is recommended to selectively trim overweight positions within the cyclical sectors, especially those demonstrating significant volatility or underperformance, to reduce idiosyncratic risk. The capital generated from these adjustments should be strategically redeployed into more defensive growth sectors, high-quality large-cap equities for enhanced stability, or broadly diversified mutual funds to improve overall portfolio breadth. Increasing the liquid cash allocation to a target of 15% would further bolster financial flexibility, provide a cushion against market downturns, and offer dry powder for future opportunistic investments. This rebalancing strategy is designed to foster a more resilient and robust portfolio, aiming for improved risk-adjusted returns without entirely compromising long-term growth potential.",
+  "kpis": [
+    {
+      "label": "Diversification",
+      "value": "Poor",
+      "color": "#f85149"
+    },
+    {
+      "label": "Growth Tilt",
+      "value": "Low",
+      "color": "#58a6ff"
+    },
+    {
+      "label": "Risk Profile",
+      "value": "Aggressive",
+      "color": "#f85149"
+    },
+    {
+      "label": "Action",
+      "value": "Rebalance",
+      "color": "#d2a8ff"
+    }
+  ],
+  "doughnut_chart": [
+    {
+      "name": "Defensive",
+      "value": 30,
+      "fill": "#3fb950"
+    },
+    {
+      "name": "Cyclical",
+      "value": 70,
+      "fill": "#f85149"
+    }
+  ],
+  "bar_chart": [
+    {
+      "name": "Suggested Cash (%)",
+      "value": 15,
+      "fill": "#d2a8ff"
+    },
+    {
+      "name": "Suggested Equities (%)",
+      "value": 85,
+      "fill": "#58a6ff"
+    }
+  ]
+}

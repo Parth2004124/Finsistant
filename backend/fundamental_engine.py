@@ -138,7 +138,7 @@ def calculate_fundamental_score(info):
     elif ratios["roe"] > 0 and ratios["roe"] < 8:
         nlp_texts.append(f"Profitability is currently subdued, with ROE sitting at a low {ratios['roe']}%.")
         
-    if ratios["debtToEquity"] > 0:
+    if ratios["debtToEquity"] is not None:
         if ratios["debtToEquity"] < 0.5: nlp_texts.append(f"The balance sheet is healthy with a minimal Debt-to-Equity ratio of {round(ratios['debtToEquity'], 2)}.")
         elif ratios["debtToEquity"] > 2.0: nlp_texts.append(f"Leverage is quite high (Debt/Equity: {round(ratios['debtToEquity'], 2)}), introducing potential risk.")
         

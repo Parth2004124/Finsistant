@@ -79,25 +79,23 @@ def _run_selenium_login():
 def get_kite():
     with token_lock:
         today = str(date.today())
-        if token_state['date'] == today:
+        disk_token = _read_token_file(today)
+        
+        if token_state['date'] == today and token_state.get('last_token') == disk_token and token_state.get('kite') is not None:
             return token_state['kite']
             
-        # New day — check disk first
-        token = _read_token_file(today)
-        
         # If token.txt is stale/missing, run Selenium asynchronously
-        if not token:
+        if not disk_token:
             _run_selenium_login()
             raise SessionRenewingException("Token expired. Fetching fresh token in background...")
             
         # If it STILL failed (Selenium crash), fallback to emergency token
-        if not token:
-            token = ACCESS_TOKEN_FALLBACK
+        active_token = disk_token if disk_token else ACCESS_TOKEN_FALLBACK
             
         kite = KiteConnect(api_key=API_KEY)
-        kite.set_access_token(token)
+        kite.set_access_token(active_token)
         
-        token_state.update({'date': today, 'kite': kite})
+        token_state.update({'date': today, 'kite': kite, 'last_token': active_token})
         print(f"[Token Engine] Successfully initialized Kite session for {today}")
         return kite
 
@@ -133,13 +131,17 @@ def get_chart(symbol):
         
         chart_data = []
         for i in range(len(timestamps)):
-            if quote['open'][i] is not None:
+            o = quote['open'][i]
+            h = quote['high'][i]
+            l = quote['low'][i]
+            c = quote['close'][i]
+            if o is not None and h is not None and l is not None and c is not None:
                 chart_data.append({
                     "time": datetime.fromtimestamp(timestamps[i]).strftime("%Y-%m-%d"),
-                    "open": round(quote['open'][i], 2),
-                    "high": round(quote['high'][i], 2),
-                    "low": round(quote['low'][i], 2),
-                    "close": round(quote['close'][i], 2)
+                    "open": round(o, 2),
+                    "high": round(h, 2),
+                    "low": round(l, 2),
+                    "close": round(c, 2)
                 })
         return jsonify({"status": "success", "data": chart_data})
     except Exception as e:
@@ -720,7 +722,7 @@ def get_watchlist():
     try:
         conn = sqlite3.connect(WATCHLIST_DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT symbol, quant_report, regression_points FROM watchlist ORDER BY added_at DESC")
+        c.execute("SELECT symbol, quant_report, regression_points, raw_ohlc FROM watchlist ORDER BY added_at DESC")
         rows = c.fetchall()
         conn.close()
         
@@ -729,7 +731,8 @@ def get_watchlist():
             data.append({
                 "symbol": r[0],
                 "quant_report": r[1],
-                "regression_points": r[2]
+                "regression_points": r[2],
+                "ohlc": json.loads(r[3]) if len(r) > 3 and r[3] else []
             })
             
         return jsonify({"status": "success", "data": data})

@@ -22,12 +22,22 @@ def run_scan(is_amo, push_to_api=True):
 
     print("Fetching LIVE NIFTY 500 symbols from NSE...")
     try:
-        url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
-        df_nifty = pd.read_csv(url)
+        import io
+        url = "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        df_nifty = pd.read_csv(io.StringIO(r.text))
         symbols = df_nifty['Symbol'].tolist()
+        print(f"Successfully fetched {len(symbols)} symbols from NSE!")
     except Exception as e:
-        print("Failed to fetch from NSE. Falling back to NIFTY 50...")
-        symbols = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "ITC", "SBIN", "BHARTIARTL", "BAJFINANCE", "LARSEN"]
+        print("Failed to fetch from NSE. Falling back to expanded backup list...")
+        symbols = [
+            "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "ITC", "SBIN", "BHARTIARTL", "BAJFINANCE", "LT",
+            "HINDUNILVR", "AXISBANK", "KOTAKBANK", "MARUTI", "SUNPHARMA", "ULTRACEMCO", "TITAN", "NTPC", "TATAMOTORS", "BAJAJFINSV",
+            "ASIANPAINT", "POWERGRID", "M&M", "TATASTEEL", "HCLTECH", "ONGC", "JSWSTEEL", "ADANIPORTS", "WIPRO", "HDFCLIFE",
+            "ZOMATO", "SUZLON", "IREDA", "JIOFIN", "TRENT", "IRFC", "BSE", "CDSL", "ANGELONE", "RVNL", "MAZDOCK", "COCHINSHIP"
+        ]
         
     yf_symbols = [f"{s}.NS" for s in symbols]
     
@@ -55,6 +65,20 @@ def run_scan(is_amo, push_to_api=True):
         volumes = data['Volume']
         closes = data['Close']
         
+        import pytz
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
+        market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+        
+        if now < market_open:
+            vol_multiplier = 1.0
+        elif now > market_close:
+            vol_multiplier = 1.0
+        else:
+            minutes_elapsed = (now - market_open).total_seconds() / 60
+            vol_multiplier = max(1.0, 375.0 / max(1, minutes_elapsed))
+        
         for symbol in yf_symbols:
             try:
                 sym_vol = volumes[symbol].dropna()
@@ -64,12 +88,13 @@ def run_scan(is_amo, push_to_api=True):
                 
                 avg_vol_20 = sym_vol.iloc[-20:].mean()
                 today_vol = sym_vol.iloc[-1]
+                projected_today_vol = today_vol * vol_multiplier
                 
                 today_close = sym_close.iloc[-1]
                 yesterday_close = sym_close.iloc[-2]
                 
                 # Check for Volume Anomaly (> 1.5x average) AND a Green Day
-                if today_vol > (avg_vol_20 * 1.5) and today_close > yesterday_close:
+                if projected_today_vol > (avg_vol_20 * 1.5) and today_close > yesterday_close:
                     clean_sym = symbol.replace(".NS", "")
                     viable_candidates.append({"symbol": clean_sym, "price": today_close})
             except Exception:

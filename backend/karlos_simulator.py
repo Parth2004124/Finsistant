@@ -127,15 +127,21 @@ def simulate_trade(trade_id):
     # Format simulated OHLC back to JSON
     simulated_ohlc = []
     for i in range(len(pred_df)):
+        o_val = float(pred_df['open'].iloc[i])
+        h_val = float(pred_df['high'].iloc[i])
+        l_val = float(pred_df['low'].iloc[i])
+        c_val = float(pred_df['close'].iloc[i])
+        
         simulated_ohlc.append({
             "time": y_timestamp[i].strftime("%Y-%m-%d"),
-            "open": float(pred_df['open'].iloc[i]),
-            "high": float(pred_df['high'].iloc[i]),
-            "low": float(pred_df['low'].iloc[i]),
-            "close": float(pred_df['close'].iloc[i])
+            "open": o_val,
+            "high": max(o_val, h_val, l_val, c_val),
+            "low": min(o_val, h_val, l_val, c_val),
+            "close": c_val
         })
         
     # Append to trade_params
+    update_progress(100)
     trade_params["simulated_ohlc"] = simulated_ohlc
     
     c.execute("UPDATE pending_trades SET trade_params = ? WHERE id = ?", (json.dumps(trade_params), trade_id))

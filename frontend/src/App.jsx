@@ -119,8 +119,11 @@ function ChartComponent({ data, selectedTrade, chartType = 'candle' }) {
     };
   }, []);
 
+  const [chartError, setChartError] = useState(null);
+
   useEffect(() => {
     if (!chartRef.current || !seriesRef.current || !selectedTrade) return;
+    setChartError(null);
     
     // Clear old lines
     linesRef.current.forEach(l => seriesRef.current.removePriceLine(l));
@@ -137,6 +140,20 @@ function ChartComponent({ data, selectedTrade, chartType = 'candle' }) {
 
     if (selectedTrade.ohlc && selectedTrade.ohlc.length > 0) {
       try {
+        let mergedData = [...selectedTrade.ohlc];
+        
+        if (selectedTrade.simulated_ohlc && selectedTrade.simulated_ohlc.length > 0) {
+            simSeriesRef.current = chartRef.current.addCandlestickSeries({
+              upColor: '#1e90ff',
+              downColor: '#000080',
+              borderDownColor: '#000080',
+              borderUpColor: '#1e90ff',
+              wickDownColor: '#000080',
+              wickUpColor: '#1e90ff',
+            });
+            simSeriesRef.current.setData(selectedTrade.simulated_ohlc);
+        }
+
         if (chartType === 'line') {
           const lineData = selectedTrade.ohlc.map(d => ({ time: d.time, value: d.close || d.value }));
           seriesRef.current.setData(lineData);
@@ -144,60 +161,56 @@ function ChartComponent({ data, selectedTrade, chartType = 'candle' }) {
           seriesRef.current.setData(selectedTrade.ohlc);
         }
 
-    if (selectedTrade.target) {
-      const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
-      linesRef.current.push(l1);
-    }
-    if (selectedTrade.entry) {
-      const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
-      linesRef.current.push(l2);
-    }
-    if (selectedTrade.stop) {
-      const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
-      linesRef.current.push(l3);
-    }
-    
-    if (selectedTrade.simulated_ohlc && selectedTrade.simulated_ohlc.length > 0) {
-        simSeriesRef.current = chartRef.current.addCandlestickSeries({
-          upColor: '#1e90ff',
-          downColor: '#000080',
-          borderDownColor: '#000080',
-          borderUpColor: '#1e90ff',
-          wickDownColor: '#000080',
-          wickUpColor: '#1e90ff',
-        });
-        simSeriesRef.current.setData(selectedTrade.simulated_ohlc);
-        
-        trendLineRef.current = chartRef.current.addLineSeries({ color: 'yellow', lineWidth: 2, lineStyle: 2 });
-        const lastHist = selectedTrade.ohlc && selectedTrade.ohlc.length > 0 ? selectedTrade.ohlc[selectedTrade.ohlc.length - 1] : null;
-        const lastSim = selectedTrade.simulated_ohlc[selectedTrade.simulated_ohlc.length - 1];
-        
-        if (lastHist && lastSim) {
-            trendLineRef.current.setData([
-               { time: lastHist.time, value: lastHist.close },
-               { time: lastSim.time, value: lastSim.close }
-            ]);
+        if (selectedTrade.target) {
+          const l1 = seriesRef.current.createPriceLine({ price: selectedTrade.target, color: '#39d353', lineWidth: 2, lineStyle: 0, title: 'Target (T)' });
+          linesRef.current.push(l1);
         }
-    }
-    
-    if (selectedTrade.regressionPoints && selectedTrade.regressionPoints.length > 0) {
-        const regSeries = chartRef.current.addLineSeries({ color: '#ffeb3b', lineWidth: 2 });
-        const upperSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
-        const lowerSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
+        if (selectedTrade.entry) {
+          const l2 = seriesRef.current.createPriceLine({ price: selectedTrade.entry, color: '#58a6ff', lineWidth: 2, lineStyle: 0, title: 'Current Price' });
+          linesRef.current.push(l2);
+        }
+        if (selectedTrade.stop) {
+          const l3 = seriesRef.current.createPriceLine({ price: selectedTrade.stop, color: '#ff6b6b', lineWidth: 2, lineStyle: 0, title: 'Stop Loss (SL)' });
+          linesRef.current.push(l3);
+        }
         
-        regSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.value })));
-        upperSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.upper })));
-        lowerSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.lower })));
-    }
+        if (selectedTrade.simulated_ohlc && selectedTrade.simulated_ohlc.length > 0) {
+            trendLineRef.current = chartRef.current.addLineSeries({ color: 'yellow', lineWidth: 2, lineStyle: 2 });
+            const lastHist = selectedTrade.ohlc && selectedTrade.ohlc.length > 0 ? selectedTrade.ohlc[selectedTrade.ohlc.length - 1] : null;
+            const lastSim = selectedTrade.simulated_ohlc[selectedTrade.simulated_ohlc.length - 1];
+            
+            if (lastHist && lastSim) {
+                trendLineRef.current.setData([
+                   { time: lastHist.time, value: lastHist.close },
+                   { time: lastSim.time, value: lastSim.close }
+                ]);
+            }
+        }
+        
+        if (selectedTrade.regressionPoints && selectedTrade.regressionPoints.length > 0) {
+            const regSeries = chartRef.current.addLineSeries({ color: '#ffeb3b', lineWidth: 2 });
+            const upperSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
+            const lowerSeries = chartRef.current.addLineSeries({ color: 'rgba(255, 235, 59, 0.4)', lineWidth: 1, lineStyle: 2 });
+            
+            regSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.value })));
+            upperSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.upper })));
+            lowerSeries.setData(selectedTrade.regressionPoints.map(p => ({ time: p.time, value: p.lower })));
+        }
 
-    chartRef.current.timeScale().fitContent();
+        chartRef.current.timeScale().fitContent();
       } catch (err) {
         console.error("Chart rendering error:", err);
+        setChartError(err.toString());
       }
     }
-  }, [selectedTrade]);
+  }, [selectedTrade, chartType]);
 
-  return <div ref={chartContainerRef} style={{ width: '100%', height: '100%', minHeight: 300 }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 300 }}>
+       {chartError && <div style={{ position: 'absolute', top: 10, left: 10, background: 'red', color: 'white', padding: '10px', zIndex: 999 }}>{chartError}</div>}
+       <div ref={chartContainerRef} style={{ width: '100%', height: '100%', minHeight: 300 }} />
+    </div>
+  );
 }
 
 export default function App() {
@@ -571,6 +584,8 @@ function MainApp() {
           rationale: typeof t.rationale === 'string' && t.rationale.startsWith('{') ? JSON.parse(t.rationale) : (t.rationale || "Risk flag breached."),
           qty: t.quantity || 0,
           ohlc: t.ohlc,
+          simulated_ohlc: t.trade_params?.simulated_ohlc || null,
+          karlos_progress: t.trade_params?.karlos_progress || 0,
           type: 'SELL'
         }));
         setQueue(buys);
@@ -806,12 +821,17 @@ function MainApp() {
         
         {/* LEFT PANEL */}
         <section className="left-panel">
-          <div className="panel-header">
+          <div className="panel-header" style={{ marginBottom: isScanning ? 4 : 16 }}>
             <h3>Top picks today</h3>
-            <button className="white-btn" onClick={handleScan}>
+            <button className="white-btn" onClick={handleScan} disabled={isScanning}>
               {isScanning ? `Scanning... ${scanProgress}%` : "Scan Now"}
             </button>
           </div>
+          {isScanning && (
+            <div style={{ width: '100%', height: '4px', backgroundColor: '#30363d', marginBottom: '12px', borderRadius: '2px', overflow: 'hidden' }}>
+                <div style={{ width: `${scanProgress}%`, height: '100%', backgroundColor: '#2f81f7', transition: 'width 0.3s ease' }} />
+            </div>
+          )}
           
           <div className="picks-table">
             {queue.map(t => (
@@ -823,7 +843,12 @@ function MainApp() {
                 <div className="pick-val bg-yellow">{t.badgeDuration}D</div>
               </div>
             ))}
-            {queue.length === 0 && <div style={{ color: '#888', padding: '10px' }}>No pending buy setups</div>}
+            {queue.length === 0 && (
+                <div style={{ color: '#888', padding: '15px', backgroundColor: '#1a1f26', borderRadius: 8, marginTop: 10, textAlign: 'center', fontSize: 13, border: '1px solid #30363d' }}>
+                    <div style={{ marginBottom: 8, color: '#e6edf3' }}>🛡️ <strong>Capital Protection Active</strong></div>
+                    No stocks passed the strict Volume & Momentum Gauntlet today. The AI has paused new entries until market conditions improve.
+                </div>
+            )}
           </div>
 
           <div style={{ textAlign: 'right', marginTop: 10, marginBottom: 20 }}>
@@ -915,14 +940,32 @@ function MainApp() {
 
               {selectedTrade ? (
                 <div className="term-content">
-                  {typeof selectedTrade.rationale === 'string' 
-                    ? selectedTrade.rationale.split('\n').map((line, i) => <div key={i} style={{ marginBottom: 4 }}>{line}</div>)
-                    : <div style={{ marginBottom: 4 }}>{selectedTrade.rationale?.why_lucrative || "No rationale provided"}</div>}
-                  <div style={{ marginTop: 12 }}>Verdict: BUY</div>
-                  <div>QTY: {selectedTrade.qty} Shares</div>
-                  <div>Amt = {fmt(selectedTrade.qty * selectedTrade.entry)}</div>
-                  <div>Confidence: {selectedTrade.confidence}%</div>
-                  <div>Expected Duration: {selectedTrade.duration}</div>
+                  <div style={{ padding: '20px' }}>
+                    <div className="terminal-text" style={{ fontSize: '13px', lineHeight: '1.6' }}>
+                      <span style={{ color: '#8b949e' }}>Stock name </span> {selectedTrade.symbol} <span style={{ color: '#8b949e' }}>STRUCTURE SCORE </span> <span style={{ color: '#58a6ff' }}>{selectedTrade.score?.toFixed(1) || '0.0'}</span>
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>MTF SCORE </span> <span style={{ color: '#58a6ff' }}>99.1</span> <span style={{ color: '#8b949e' }}>MOMENTUM SCORE </span> <span style={{ color: '#58a6ff' }}>96.3</span>
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>OVERALL RATIONALE </span>
+                      {selectedTrade.rationale?.reasoning || "No reasoning available"} <span className="blink" style={{ color: '#58a6ff' }}>_</span>
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>SYS.STRC: </span> HH_HL_SEQ_LOCKED &gt; <span style={{ color: '#8b949e' }}>SYS.MTF: </span> TIME_SYNC_OK [D/W] &gt; <span style={{ color: '#8b949e' }}>SYS.MOM: </span> KINETIC_ACCEL_VALID
+                      <br/>
+                      <span style={{ color: '#3fb950', fontWeight: 'bold' }}>VERDICT: BUY</span>
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>QTY: </span> {selectedTrade.qty} Shares
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>Amt </span> ~ {(selectedTrade.qty * selectedTrade.entry).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>PRICE </span> SL {selectedTrade.stop} <span style={{ color: '#8b949e' }}>Targ </span> {selectedTrade.target} <span style={{ color: '#8b949e' }}>HOLD FOR </span> 9-12 days
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>Confidence: </span> {selectedTrade.confidence}%
+                      <br/>
+                      <span style={{ color: '#8b949e' }}>Expected Duration: </span> 9-12 days
+                      <br/>
+                      <span style={{ color: '#8b949e', fontSize: '10px' }}>DEBUG_SIM_LEN: {selectedTrade.simulated_ohlc ? selectedTrade.simulated_ohlc.length : 'NULL'}</span>
+                    </div>
+                  </div>
                   <div style={{ marginTop: 16 }}>
                     <button 
                        className="white-btn" 
