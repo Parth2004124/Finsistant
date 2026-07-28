@@ -722,7 +722,7 @@ def get_watchlist():
     try:
         conn = sqlite3.connect(WATCHLIST_DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT symbol, quant_report, regression_points, raw_ohlc FROM watchlist ORDER BY added_at DESC")
+        c.execute("SELECT symbol, quant_report, regression_points FROM watchlist ORDER BY added_at DESC")
         rows = c.fetchall()
         conn.close()
         
@@ -731,8 +731,7 @@ def get_watchlist():
             data.append({
                 "symbol": r[0],
                 "quant_report": r[1],
-                "regression_points": r[2],
-                "ohlc": json.loads(r[3]) if len(r) > 3 and r[3] else []
+                "regression_points": r[2]
             })
             
         return jsonify({"status": "success", "data": data})
